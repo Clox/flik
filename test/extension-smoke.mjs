@@ -154,6 +154,16 @@ try {
   await evaluate(options, `chrome.storage.local.set({settings:{exclusions:['127.0.0.1']}})`);
   await eventually(() => Promise.all(pages.map(session => evaluate(session, 'document.querySelectorAll("link[data-flik-v2-indicator], link[data-flik-indicator]").length'))), values => values.every(value => value === 0));
   await eventually(() => Promise.all(pages.map(session => evaluate(session, 'document.querySelectorAll("link[rel~=icon]").length'))), values => values[0] === 3 && values.slice(1).every(value => value === 2));
+  await evaluate(options, `(() => { const style = document.querySelector('#style'); style.value = 'dot'; style.dispatchEvent(new Event('change', {bubbles:true})); })()`);
+  assert.equal(await evaluate(options, 'document.querySelector("#barControls").hidden'), true);
+  await evaluate(options, `(() => { const style = document.querySelector('#style'); style.value = 'bar'; style.dispatchEvent(new Event('change', {bubbles:true})); document.querySelector('#addColorRow').click(); })()`);
+  assert.equal(await evaluate(options, 'document.querySelector("#barControls").hidden'), false);
+  assert.equal(await evaluate(options, 'document.querySelector("#colorRows").rows.length'), 5);
+  await evaluate(options, `(() => { const row = document.querySelector('#colorRows').lastElementChild; row.querySelector('input[type=number]').value = '150'; row.querySelector('input[type=color]').value = '#123456'; document.querySelector('#settings').requestSubmit(); })()`);
+  await eventually(() => evaluate(options, 'chrome.storage.local.get("settings").then(value => value.settings?.thresholds?.at(-1))'), value => value === 150);
+  assert.equal(await evaluate(options, 'chrome.storage.local.get("settings").then(value => value.settings.colors.at(-1))'), '#123456');
+  await evaluate(options, `(() => { document.querySelector('#colorRows').lastElementChild.querySelector('button').click(); document.querySelector('#settings').requestSubmit(); })()`);
+  await eventually(() => evaluate(options, 'chrome.storage.local.get("settings").then(value => value.settings?.colors?.length)'), value => value === 4);
   console.log('Full Chrome extension test passed: twenty tabs, including twelve open before install; diagnostics, cross-origin favicons, position change, restoration.');
 } finally {
   browser.kill('SIGINT');

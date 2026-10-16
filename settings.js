@@ -13,11 +13,14 @@ export const defaults = Object.freeze({
 
 export function normalizeSettings(value = {}) {
   const s = { ...defaults, ...value };
-  s.thresholds = Array.isArray(s.thresholds) && s.thresholds.length === 3
-    ? s.thresholds.map(Number) : [...defaults.thresholds];
-  if (s.thresholds.some((n, i) => !Number.isFinite(n) || n <= 0 || (i && n <= s.thresholds[i - 1]))) s.thresholds = [...defaults.thresholds];
-  s.colors = Array.isArray(s.colors) && s.colors.length === 4 && s.colors.every(c => /^#[0-9a-f]{6}$/i.test(c))
-    ? s.colors : [...defaults.colors];
+  const validThresholds = Array.isArray(s.thresholds) && s.thresholds.length <= 11 &&
+    s.thresholds.every((n, i) => Number.isInteger(Number(n)) && Number(n) > 0 &&
+      (i === 0 || Number(n) > Number(s.thresholds[i - 1])));
+  s.thresholds = validThresholds ? s.thresholds.map(Number) : [...defaults.thresholds];
+  s.colors = Array.isArray(s.colors) && s.colors.length === s.thresholds.length + 1 &&
+    s.colors.every(c => /^#[0-9a-f]{6}$/i.test(c)) ? s.colors :
+    s.thresholds.length === defaults.thresholds.length ? [...defaults.colors] :
+      Array(s.thresholds.length + 1).fill(defaults.colors[0]);
   if (!['steps', 'gradient'].includes(s.mode)) s.mode = defaults.mode;
   if (!['bar', 'dot', 'border'].includes(s.style)) s.style = defaults.style;
   if (!['top', 'bottom'].includes(s.barPosition)) s.barPosition = defaults.barPosition;
@@ -31,11 +34,14 @@ export function normalizeSettings(value = {}) {
 
 export function colorForAge(minutes, settings) {
   const t = settings.thresholds, c = settings.colors;
-  if (settings.mode === 'steps') return c[minutes < t[0] ? 0 : minutes < t[1] ? 1 : minutes < t[2] ? 2 : 3];
+  if (settings.mode === 'steps') {
+    const index = t.findIndex(value => minutes < value);
+    return c[index < 0 ? c.length - 1 : index];
+  }
   if (minutes <= 0) return c[0];
-  if (minutes >= t[2]) return c[3];
+  if (!t.length || minutes >= t.at(-1)) return c.at(-1);
   const points = [0, ...t];
-  const left = minutes < t[0] ? 0 : minutes < t[1] ? 1 : 2;
+  const left = t.findIndex(value => minutes < value);
   const fraction = (minutes - points[left]) / (points[left + 1] - points[left]);
   const a = c[left].match(/\w\w/g).map(x => parseInt(x, 16));
   const b = c[left + 1].match(/\w\w/g).map(x => parseInt(x, 16));

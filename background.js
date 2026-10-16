@@ -13,6 +13,24 @@ let selectedSince = Date.now();
 let lastColors = new Map();
 let ready;
 let queue = Promise.resolve();
+let dwellCheckTimer;
+
+function scheduleDwellCheck() {
+  clearTimeout(dwellCheckTimer);
+  if (currentTabId == null || !running()) return;
+  const tabId = currentTabId;
+  const windowId = focusedWindowId;
+  const since = selectedSince;
+  dwellCheckTimer = setTimeout(() => serialized(async () => {
+    if (currentTabId !== tabId || focusedWindowId !== windowId || selectedSince !== since || !running()) return;
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (!tab?.active || tab.windowId !== windowId) return;
+    settle();
+    await save();
+    await updateTab(tab);
+  }), Math.max(0, settings.dwellSeconds * 1000 - (Date.now() - since)) + 100);
+  dwellCheckTimer.unref?.();
+}
 
 function serialized(job) {
   queue = queue.then(async () => { await initialize(); return job(); }).catch(console.error);
@@ -63,6 +81,7 @@ async function initialize() {
     chrome.idle.setDetectionInterval(settings.afkSeconds);
     if (!await chrome.alarms.get(TICK)) chrome.alarms.create(TICK, { periodInMinutes: 0.5 });
     await updateAll();
+    scheduleDwellCheck();
   })();
   return ready;
 }
@@ -132,6 +151,7 @@ async function injectExistingTabs() {
 function select(tabId, windowId, now = Date.now()) {
   currentTabId = windowId === focusedWindowId ? tabId : null;
   selectedSince = now;
+  scheduleDwellCheck();
 }
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -150,7 +170,7 @@ chrome.alarms.onAlarm.addListener(alarm => {
     settle(now, same && running());
     idleState = idle;
     focusedWindowId = focused?.focused ? focused.id : chrome.windows.WINDOW_ID_NONE;
-    if (!same) { currentTabId = focused?.focused ? (await chrome.tabs.query({ active: true, windowId: focused.id }))[0]?.id ?? null : null; selectedSince = now; }
+    if (!same) { currentTabId = focused?.focused ? (await chrome.tabs.query({ active: true, windowId: focused.id }))[0]?.id ?? null : null; selectedSince = now; scheduleDwellCheck(); }
     await save();
     await updateAll();
   });
@@ -161,6 +181,7 @@ chrome.idle.onStateChanged.addListener(next => serialized(async () => {
   settle(Date.now(), next === 'active' && running());
   idleState = next;
   if (next === 'active') selectedSince = Date.now();
+  scheduleDwellCheck();
   await save();
   await updateAll();
 }));
@@ -172,6 +193,7 @@ chrome.windows.onFocusChanged.addListener(id => serialized(async () => {
   focusedWindowId = focused?.focused && focused.type === 'normal' ? id : chrome.windows.WINDOW_ID_NONE;
   currentTabId = focusedWindowId === chrome.windows.WINDOW_ID_NONE ? null : (await chrome.tabs.query({ active: true, windowId: id }))[0]?.id ?? null;
   selectedSince = now;
+  scheduleDwellCheck();
   await save();
   await updateAll();
 }));
@@ -227,6 +249,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           cspBlocked: Boolean(detail?.cspBlocked),
           iconSizes: detail?.iconSizes || [], markerLast: Boolean(detail?.markerLast),
           soleIcon: Boolean(detail?.soleIcon),
+          ageMinutes: Math.round(ageMinutes(state.clock.total, state.tabs[tab.id]?.lastUsed ?? state.clock.total) * 10) / 10,
+          selected: tab.id === currentTabId && tab.windowId === focusedWindowId,
+          idleState,
           excluded: state.excludedTabs.includes(tab.id) || isExcluded(row.url, settings.exclusions) };
       }));
       respond({ results });
@@ -303,6 +328,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     chrome.idle.setDetectionInterval(settings.afkSeconds);
     idleState = await chrome.idle.queryState(settings.afkSeconds);
     selectedSince = Date.now();
+    scheduleDwellCheck();
     lastColors.clear();
     await save();
     await updateAll(true);

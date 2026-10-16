@@ -50,6 +50,16 @@ test('colors change at active-time boundaries', () => {
   assert.equal(colorForAge(120, gradient), defaults.colors[3]);
 });
 
+test('color ranges support adding and removing rows', () => {
+  const custom = normalizeSettings({ thresholds: [2, 8, 20, 60], colors: ['#112233', '#223344', '#334455', '#445566', '#556677'] });
+  assert.equal(colorForAge(0, custom), '#112233');
+  assert.equal(colorForAge(8, custom), '#334455');
+  assert.equal(colorForAge(100, custom), '#556677');
+  const single = normalizeSettings({ thresholds: [], colors: ['#abcdef'] });
+  assert.equal(colorForAge(999, single), '#abcdef');
+  assert.equal(colorForAge(999, { ...single, mode: 'gradient' }), '#abcdef');
+});
+
 test('domain and URL exclusions', () => {
   assert.ok(isExcluded('https://mail.gmail.com/mail/u/0/', ['gmail.com']));
   assert.ok(isExcluded('https://example.com/private/a', ['https://example.com/private/*']));
