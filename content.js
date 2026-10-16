@@ -1,13 +1,16 @@
 (() => {
   const OWNER = 'data-flik-v2-owner';
   const previous = globalThis.__flikContentStarted;
-  if (previous?.version === '0.1.12' && previous.active &&
+  if (previous?.version === '0.1.13' && previous.active &&
       document.documentElement?.getAttribute(OWNER) === previous.token) return;
   previous?.dispose?.();
-  const instance = { version: '0.1.12', token: `${Date.now()}-${Math.random()}`, active: true };
+  const instance = { version: '0.1.13', token: `${Date.now()}-${Math.random()}`, active: true };
   globalThis.__flikContentStarted = instance;
   const OWN = 'data-flik-v2-indicator';
   const LEGACY = 'data-flik-indicator';
+  const SOURCES = 'data-flik-original-icon-urls';
+  const CLEAN_BASE = 'data-flik-clean-favicon';
+  const CLEAN_KEY = 'data-flik-clean-favicon-key';
   const staleHrefs = new Set();
   for (const old of document.querySelectorAll(`link[${LEGACY}], link[${OWN}]`)) {
     staleHrefs.add(old.href);
@@ -20,9 +23,11 @@
   let cachedBrowserIcon = null;
   let cachedSourceKey = '';
   let cleanBaseIcon = null;
+  let baseSource = 'okänd';
   let renderStatus = 'väntar';
   let lastRenderAt = 0;
   let renderedColor = null;
+  let objectUrl = null;
   let cspBlocked = false;
   let dwellTimer;
   let lastInteraction = 0;
@@ -30,6 +35,22 @@
   let ownerObserver;
   let startup;
   const originalIcons = new Set();
+  let savedOriginalUrls = [];
+
+  function loadSavedSources() {
+    try {
+      const urls = JSON.parse(document.documentElement?.getAttribute(SOURCES) || '[]');
+      if (Array.isArray(urls)) savedOriginalUrls = urls.filter(url => typeof url === 'string' && url.length < 8192).slice(0, 16);
+    } catch { savedOriginalUrls = []; }
+    const key = JSON.stringify(linkedIconUrls());
+    const base = document.documentElement?.getAttribute(CLEAN_BASE);
+    if (base?.startsWith('data:image/png;base64,') && base.length < 32768 &&
+      document.documentElement.getAttribute(CLEAN_KEY) === key) {
+      cachedSourceKey = key;
+      cleanBaseIcon = base;
+      baseSource = 'sparad originalbild';
+    }
+  }
 
   function isOwner() {
     return instance.active && document.documentElement?.getAttribute(OWNER) === instance.token;
@@ -62,7 +83,7 @@
   const onCspViolation = event => {
     if (Date.now() - lastRenderAt < 2000 &&
       ['img-src', 'default-src'].includes(event.effectiveDirective) &&
-      String(event.blockedURI).startsWith('data')) cspBlocked = true;
+      /^(data|blob)/.test(String(event.blockedURI))) cspBlocked = true;
   };
   document.addEventListener('securitypolicyviolation', onCspViolation);
   window.addEventListener('focus', scheduleDwell);
@@ -76,20 +97,22 @@
     });
     // Chrome may report our generated favicon back as tab.favIconUrl, sometimes
     // after re-encoding it. Never treat a browser-reported data URL as original.
-    const browserIcon = config?.faviconUrl && !config.faviconUrl.startsWith('data:') &&
+    const browserIcon = config?.faviconUrl && !/^(data:|blob:)/.test(config.faviconUrl) &&
       !staleHrefs.has(config.faviconUrl) ? config.faviconUrl : null;
     return [...new Set([
       ...links.reverse().map(link => link.href),
+      ...savedOriginalUrls.slice().reverse(),
       browserIcon,
       new URL('/favicon.ico', location.href).href
     ].filter(Boolean))];
   }
 
   function linkedIconUrls() {
-    return [...originalIcons, ...document.querySelectorAll('head link[rel]')]
+    const live = [...originalIcons, ...document.querySelectorAll('head link[rel]')]
       .filter(link => !link.hasAttribute(OWN) && !link.hasAttribute(LEGACY) &&
         link.rel.toLowerCase().split(/\s+/).includes('icon') && link.href)
       .map(link => link.href);
+    return [...new Set([...savedOriginalUrls, ...live])];
   }
 
   function removeOtherIndicators() {
@@ -102,6 +125,7 @@
     renderSerial++;
     indicator?.remove();
     indicator = null;
+    if (objectUrl) { URL.revokeObjectURL(objectUrl); objectUrl = null; }
     renderedColor = null;
     restoreOriginalIcons();
     sourceKey = '';
@@ -117,12 +141,25 @@
         attributeFilter: ['href', 'rel', 'type', 'sizes'] });
       link.remove();
     }
+    const urls = [...new Set([...savedOriginalUrls, ...[...originalIcons].map(link => link.href)])].slice(-16);
+    if (urls.length) {
+      savedOriginalUrls = urls;
+      document.documentElement?.setAttribute(SOURCES, JSON.stringify(urls));
+    }
   }
 
   function restoreOriginalIcons() {
     if (!document.head) return;
     for (const link of originalIcons) {
       if (!link.isConnected) document.head.appendChild(link);
+    }
+    if (!originalIcons.size && !document.querySelector('head link[rel~="icon"]')) {
+      for (const url of savedOriginalUrls) {
+        const link = document.createElement('link');
+        link.rel = 'icon';
+        link.href = url;
+        document.head.appendChild(link);
+      }
     }
     originalIcons.clear();
   }
@@ -172,6 +209,7 @@
       cachedSourceKey = sourceFingerprint;
       cachedBrowserIcon = null;
       cleanBaseIcon = null;
+      baseSource = 'okänd';
     }
     const sources = cleanBaseIcon ? [cleanBaseIcon] :
       cachedBrowserIcon ? [cachedBrowserIcon, ...siteSources] : [...siteSources];
@@ -202,23 +240,41 @@
           data = draw(img, config.color, config.style, config.position, config.height);
         }
         catch { trySource(index + 1); return; }
+        if (!cleanBaseIcon) baseSource = source === cachedBrowserIcon ? 'Chromes favicon-cache' :
+          linkedIconUrls().includes(source) ? 'sidans favicon-länk' : '/favicon.ico';
         cleanBaseIcon = base;
-        const nextIndicator = document.createElement('link');
-        nextIndicator.rel = 'icon';
-        nextIndicator.type = 'image/png';
-        nextIndicator.setAttribute('sizes', '16x16');
-        nextIndicator.setAttribute(OWN, '');
+        document.documentElement?.setAttribute(CLEAN_BASE, base);
+        document.documentElement?.setAttribute(CLEAN_KEY, sourceFingerprint);
+        const priorIndicator = indicator;
+        indicator = document.createElement('link');
+        indicator.rel = 'icon';
+        indicator.type = 'image/png';
+        indicator.setAttribute('sizes', '16x16');
+        indicator.setAttribute(OWN, '');
         // Keep one favicon candidate. Chrome can continue displaying one of
         // the site's links even when our generated link is the last one.
         stashOriginalIcons();
-        nextIndicator.href = data;
+        const bytes = Uint8Array.from(atob(data.slice(data.indexOf(',') + 1)), char => char.charCodeAt(0));
+        const nextUrl = URL.createObjectURL(new Blob([bytes], { type: 'image/png' }));
+        const previousUrl = objectUrl;
+        objectUrl = nextUrl;
+        indicator.href = nextUrl;
+        if (previousUrl) setTimeout(() => URL.revokeObjectURL(previousUrl), 30_000);
         lastRenderAt = Date.now();
-        indicator?.remove();
-        indicator = nextIndicator;
+        priorIndicator?.remove();
         document.head.appendChild(indicator);
         removeOtherIndicators();
         renderedColor = config.color;
         renderStatus = 'ikonlänk skapad';
+        const renderedLink = indicator;
+        setTimeout(() => {
+          if (!isOwner() || indicator !== renderedLink || !renderedLink.isConnected) return;
+          // Chrome can retain the previous tab-strip bitmap after the link
+          // changes. Replacing the current history entry with itself prompts
+          // a favicon refresh without changing the URL or adding navigation.
+          try { history.replaceState(history.state, '', location.href); }
+          catch { /* Some pages disallow history changes. */ }
+        }, 150);
       };
       const img = new Image();
       // Same-origin and data URLs remain canvas-readable. Cross-origin icons need CORS.
@@ -243,6 +299,7 @@
 
   function startObserver() {
     if (!document.head || observer) return;
+    loadSavedSources();
     document.documentElement.setAttribute(OWNER, instance.token);
     ownerObserver = new MutationObserver(() => { if (!isOwner()) instance.dispose(); });
     ownerObserver.observe(document.documentElement, { attributes: true, attributeFilter: [OWNER] });
@@ -282,6 +339,7 @@
         configured: Boolean(config),
         requestedColor: config?.color || null,
         renderedColor,
+        baseSource,
         sourceCount: siteIcons().length
       });
       return;

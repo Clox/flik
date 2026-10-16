@@ -119,7 +119,7 @@ field('runDiagnostics').addEventListener('click', async () => {
       catch { label = row.url || `Flik ${row.id}`; }
       const count = Number.isInteger(row.markers) ? `, aktiva markörer: ${row.markers}, äldre/inaktiva: ${row.oldMarkers || 0}` : '';
       const icons = row.iconSizes?.length ? `, sidans ikonstorlekar: ${row.iconSizes.join('/')}` : '';
-      item.textContent = `${label}: ${row.excluded ? 'undantagen' : row.status}${count}${row.cspBlocked ? ', data-bild blockerad av CSP' : ''}${icons}${Number.isInteger(row.markers) ? `, Fliks ikon ensam: ${row.soleIcon ? 'ja' : 'nej'}, ålder: ${row.ageMinutes} aktiva minuter, väntad färg: ${row.expectedColor || 'ingen'}, skickad: ${row.requestedColor || 'ingen'}, ritad: ${row.renderedColor || 'ingen'}${row.selected ? `, vald flik, Chrome: ${row.idleState}` : ''}` : ''}${row.error ? ` (${row.error})` : ''}`;
+      item.textContent = `${label}: ${row.excluded ? 'undantagen' : row.status}${count}${row.cspBlocked ? ', data-bild blockerad av CSP' : ''}${icons}${Number.isInteger(row.markers) ? `, Fliks ikon ensam: ${row.soleIcon ? 'ja' : 'nej'}, ålder: ${row.ageMinutes} aktiva minuter, väntad färg: ${row.expectedColor || 'ingen'}, skickad: ${row.requestedColor || 'ingen'}, ritad: ${row.renderedColor || 'ingen'}, ikonkälla: ${row.baseSource}${row.selected ? `, vald flik, Chrome: ${row.idleState}` : ''}` : ''}${row.error ? ` (${row.error})` : ''}`;
       lines.push(item.textContent);
       list.appendChild(item);
     }

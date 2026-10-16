@@ -27,7 +27,7 @@ function scheduleDwellCheck() {
     if (!tab?.active || tab.windowId !== windowId) return;
     settle();
     await save();
-    await updateTab(tab);
+    await updateTab(tab, true);
   }), Math.max(0, settings.dwellSeconds * 1000 - (Date.now() - since)) + 100);
   dwellCheckTimer.unref?.();
 }
@@ -136,7 +136,7 @@ async function updateTab(tab, force = false) {
 
 async function updateAll(force = false) {
   const tabs = await chrome.tabs.query({});
-  await Promise.all(tabs.map(tab => updateTab(tab, force)));
+  await Promise.all(tabs.map(tab => updateTab(tab, force || (tab.id === currentTabId && running()))));
 }
 
 async function injectExistingTabs() {
@@ -256,6 +256,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
             colorForAge(ageMinutes(state.clock.total, state.tabs[tab.id]?.lastUsed ?? state.clock.total), settings),
           requestedColor: detail?.requestedColor ?? null,
           renderedColor: detail?.renderedColor ?? null,
+          baseSource: detail?.baseSource || 'okänd',
           excluded: state.excludedTabs.includes(tab.id) || isExcluded(row.url, settings.exclusions) };
       }));
       respond({ results });
