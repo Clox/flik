@@ -103,14 +103,20 @@ try {
   await eventually(() => evaluate(options, 'document.readyState'), value => value === 'complete');
   assert.equal(await evaluate(options, 'typeof chrome.storage.local'), 'object');
 
-  const faviconHref = session => evaluate(session, 'document.querySelector("link[data-flik-indicator][rel~=icon]")?.href');
-  const pixel = (session, y) => evaluate(session, `(async()=>{const image=new Image();image.src=document.querySelector('link[data-flik-indicator][rel~=icon]').href;await image.decode();const canvas=document.createElement('canvas');canvas.width=canvas.height=16;const ctx=canvas.getContext('2d');ctx.drawImage(image,0,0,16,16);return [...ctx.getImageData(8,${y},1,1).data].slice(0,3)})()`);
+  const faviconHref = session => evaluate(session, 'document.querySelector("link[data-flik-v2-indicator][rel~=icon]")?.href');
+  const pixel = (session, y) => evaluate(session, `(async()=>{const image=new Image();image.src=document.querySelector('link[data-flik-v2-indicator][rel~=icon]').href;await image.decode();const canvas=document.createElement('canvas');canvas.width=canvas.height=16;const ctx=canvas.getContext('2d');ctx.drawImage(image,0,0,16,16);return [...ctx.getImageData(8,${y},1,1).data].slice(0,3)})()`);
 
   await eventually(() => Promise.all(pages.map(faviconHref)), values => values.every(value => value?.startsWith('data:image/png')));
+  // A newer instance taking ownership must retire the old one without deleting
+  // the new marker or leaving two listeners that fight over it.
+  await evaluate(page, 'document.documentElement.setAttribute("data-flik-v2-owner", "replaced")');
+  await eventually(() => evaluate(page, 'document.querySelector("link[data-flik-v2-indicator]")'), value => value === null);
+  await evaluate(options, `(async()=>{const tab=(await chrome.tabs.query({})).find(tab=>tab.url===${JSON.stringify(`${pageUrl}?tab=0`)});await chrome.scripting.executeScript({target:{tabId:tab.id},files:['content.js']})})()`);
+  await eventually(() => faviconHref(page), value => value?.startsWith('data:image/png'));
   // Simulate a surviving marker from an older extension context in every tab.
-  await Promise.all(pages.map(session => evaluate(session, `(() => { const link = document.createElement('link'); link.rel = 'icon'; link.setAttribute('data-flik-indicator', ''); link.href = document.querySelector('link[data-flik-indicator]').href; document.head.appendChild(link); })()`)));
-  await evaluate(page, `(() => { const legacy = document.createElement('link'); legacy.rel = 'icon'; legacy.setAttribute('data-flik-indicator', ''); legacy.href = document.querySelector('link[data-flik-indicator]').href; const observer = new MutationObserver(records => { if (records.some(record => [...record.addedNodes].some(node => node instanceof HTMLLinkElement && node.hasAttribute('data-flik-indicator') && node !== legacy)) && !legacy.isConnected) document.head.appendChild(legacy); }); observer.observe(document.head, {childList:true}); window.__legacyFlikObserver = observer; })()`);
-  await eventually(() => Promise.all(pages.map(session => evaluate(session, `[...document.querySelectorAll('link[data-flik-indicator]')].filter(link => /\\bicon\\b/i.test(link.rel)).length`))), values => values.every(value => value === 1));
+  await Promise.all(pages.map(session => evaluate(session, `(() => { const link = document.createElement('link'); link.rel = 'icon'; link.setAttribute('data-flik-indicator', ''); link.href = document.querySelector('link[data-flik-v2-indicator]').href; document.head.appendChild(link); })()`)));
+  await evaluate(page, `(() => { const legacy = document.createElement('link'); legacy.rel = 'icon'; legacy.setAttribute('data-flik-indicator', ''); legacy.href = document.querySelector('link[data-flik-v2-indicator]').href; const observer = new MutationObserver(records => { if (records.some(record => [...record.addedNodes].some(node => node instanceof HTMLLinkElement && node.hasAttribute('data-flik-v2-indicator'))) && !legacy.isConnected) document.head.appendChild(legacy); }); observer.observe(document.head, {childList:true}); window.__legacyFlikObserver = observer; })()`);
+  await eventually(() => Promise.all(pages.map(session => evaluate(session, `[...document.querySelectorAll('link[data-flik-v2-indicator]')].filter(link => /\\bicon\\b/i.test(link.rel)).length`))), values => values.every(value => value === 1));
   console.log('Indicators visible; running diagnostics…');
   const diagnostics = await evaluate(options, 'chrome.runtime.sendMessage({type:"diagnostics"})');
   assert.equal(diagnostics.results.filter(row => row.url.startsWith(pageUrl)).length, 20);
@@ -126,18 +132,18 @@ try {
   await eventually(() => Promise.all(pages.map(session => pixel(session, 0))), values => values.every(value => JSON.stringify(value) === '[230,84,84]'));
   for (const session of pages) {
     assert.deepEqual(await pixel(session, 15), [51, 102, 204]);
-    assert.equal(await evaluate(session, 'document.querySelectorAll("link[data-flik-indicator][rel~=icon]").length'), 1);
-    assert.equal(await evaluate(session, 'document.querySelector("link[data-flik-indicator][rel~=icon]").getAttribute("sizes")'), '16x16');
+    assert.equal(await evaluate(session, 'document.querySelectorAll("link[data-flik-v2-indicator][rel~=icon]").length'), 1);
+    assert.equal(await evaluate(session, 'document.querySelector("link[data-flik-v2-indicator][rel~=icon]").getAttribute("sizes")'), '16x16');
   }
 
   const { targetId: cspTarget } = await send('Target.createTarget', { url: `${pageUrl}?csp=1` });
   const cspPage = await attach(cspTarget);
-  await eventually(() => evaluate(cspPage, 'document.querySelector("link[data-flik-indicator][rel~=icon]")?.href'), value => value?.startsWith('data:image/png'));
+  await eventually(() => evaluate(cspPage, 'document.querySelector("link[data-flik-v2-indicator][rel~=icon]")?.href'), value => value?.startsWith('data:image/png'));
   const cspDiagnostic = await eventually(() => evaluate(options, 'chrome.runtime.sendMessage({type:"diagnostics"})'), value => value.results.some(row => row.url.includes('csp=1') && row.cspBlocked));
   assert.equal(cspDiagnostic.results.find(row => row.url.includes('csp=1')).cspBlocked, true);
 
   await evaluate(options, `chrome.storage.local.set({settings:{exclusions:['127.0.0.1']}})`);
-  await eventually(() => Promise.all(pages.map(session => evaluate(session, 'document.querySelectorAll("link[data-flik-indicator]").length'))), values => values.every(value => value === 0));
+  await eventually(() => Promise.all(pages.map(session => evaluate(session, 'document.querySelectorAll("link[data-flik-v2-indicator], link[data-flik-indicator]").length'))), values => values.every(value => value === 0));
   console.log('Full Chrome extension test passed: twenty tabs, including twelve open before install; diagnostics, cross-origin favicons, position change, restoration.');
 } finally {
   browser.kill('SIGINT');

@@ -1,12 +1,15 @@
 (() => {
+  const OWNER = 'data-flik-v2-owner';
   const previous = globalThis.__flikContentStarted;
-  if (previous?.version === '0.1.6') return;
+  if (previous?.version === '0.1.7' && previous.active &&
+      document.documentElement?.getAttribute(OWNER) === previous.token) return;
   previous?.dispose?.();
-  const instance = { version: '0.1.6' };
+  const instance = { version: '0.1.7', token: `${Date.now()}-${Math.random()}`, active: true };
   globalThis.__flikContentStarted = instance;
-  const OWN = 'data-flik-indicator';
+  const OWN = 'data-flik-v2-indicator';
+  const LEGACY = 'data-flik-indicator';
   const staleHrefs = new Set();
-  for (const old of document.querySelectorAll(`link[${OWN}]`)) {
+  for (const old of document.querySelectorAll(`link[${LEGACY}], link[${OWN}]`)) {
     staleHrefs.add(old.href);
     old.remove();
   }
@@ -22,7 +25,12 @@
   let dwellTimer;
   let lastInteraction = 0;
   let observer;
+  let ownerObserver;
   let startup;
+
+  function isOwner() {
+    return instance.active && document.documentElement?.getAttribute(OWNER) === instance.token;
+  }
 
   function send(type) {
     try { chrome.runtime.sendMessage({ type, visible: document.visibilityState === 'visible' }); } catch { /* Extension reloaded. */ }
@@ -59,7 +67,7 @@
 
   function siteIcons() {
     const links = [...document.querySelectorAll('head link[rel]')].filter(link => {
-      if (link.hasAttribute(OWN)) return false;
+      if (link.hasAttribute(OWN) || link.hasAttribute(LEGACY)) return false;
       return link.rel.toLowerCase().split(/\s+/).includes('icon') && link.href;
     });
     // Chrome may report our generated favicon back as tab.favIconUrl, sometimes
@@ -74,14 +82,14 @@
   }
 
   function removeOtherIndicators() {
-    for (const link of document.querySelectorAll(`link[${OWN}]`)) {
+    for (const link of document.querySelectorAll(`link[${OWN}], link[${LEGACY}]`)) {
       if (link !== indicator) link.remove();
     }
   }
 
   function removeIndicator() {
     renderSerial++;
-    for (const own of document.querySelectorAll(`link[${OWN}]`)) own.remove();
+    indicator?.remove();
     indicator = null;
     sourceKey = '';
     renderStatus = 'ingen markering';
@@ -114,8 +122,8 @@
   }
 
   function render(force = false) {
-    if (!document.head || !config) return;
-    if (!config.color) { removeIndicator(); return; }
+    if (!document.head || !config || !isOwner()) return;
+    if (!config.color) { removeIndicator(); removeOtherIndicators(); return; }
     removeOtherIndicators();
     const siteSources = siteIcons();
     const sourceFingerprint = JSON.stringify(siteSources);
@@ -148,7 +156,7 @@
       try { if (new URL(source).origin !== location.origin && !source.startsWith('data:')) img.crossOrigin = 'anonymous'; }
       catch { trySource(index + 1); return; }
       img.onload = () => {
-        if (serial !== renderSerial || !config?.color || !document.head) return;
+        if (serial !== renderSerial || !config?.color || !document.head || !isOwner()) return;
         let data;
         try { data = draw(img, config.color, config.style, config.position, config.height); }
         catch { trySource(index + 1); return; }
@@ -173,12 +181,16 @@
 
   function startObserver() {
     if (!document.head || observer) return;
+    document.documentElement.setAttribute(OWNER, instance.token);
+    ownerObserver = new MutationObserver(() => { if (!isOwner()) instance.dispose(); });
+    ownerObserver.observe(document.documentElement, { attributes: true, attributeFilter: [OWNER] });
     observer = new MutationObserver(records => {
+      if (!isOwner()) return;
       removeOtherIndicators();
-      const iconLink = node => node instanceof HTMLLinkElement && !node.hasAttribute(OWN) &&
+      const iconLink = node => node instanceof HTMLLinkElement && !node.hasAttribute(OWN) && !node.hasAttribute(LEGACY) &&
         node.rel.toLowerCase().split(/\s+/).includes('icon');
       const changed = records.some(record => {
-        if (record.target instanceof Element && record.target.hasAttribute(OWN)) return false;
+        if (record.target instanceof Element && (record.target.hasAttribute(OWN) || record.target.hasAttribute(LEGACY))) return false;
         if (record.type === 'attributes') return iconLink(record.target) ||
           (record.attributeName === 'rel' && /\bicon\b/i.test(record.oldValue || ''));
         return [...record.addedNodes, ...record.removedNodes].some(node =>
@@ -191,13 +203,15 @@
   }
 
   const onMessage = (message, _sender, respond) => {
-    if (message?.type === 'diagnostic') {
+    if (!isOwner()) return;
+    if (message?.type === 'diagnostic-v2') {
       respond({
+        version: instance.version,
         status: renderStatus,
         markers: [...document.querySelectorAll(`link[${OWN}]`)].filter(link => /\bicon\b/i.test(link.rel)).length,
-        oldMarkers: [...document.querySelectorAll(`link[${OWN}]`)].filter(link => link !== indicator).length,
+        oldMarkers: [...document.querySelectorAll(`link[${LEGACY}], link[${OWN}]`)].filter(link => link !== indicator).length,
         cspBlocked,
-        iconSizes: [...document.querySelectorAll('head link[rel~="icon"]:not([data-flik-indicator])')].map(link => link.getAttribute('sizes') || 'okänd').slice(0, 8),
+        iconSizes: [...document.querySelectorAll('head link[rel~="icon"]')].filter(link => !link.hasAttribute(OWN) && !link.hasAttribute(LEGACY)).map(link => link.getAttribute('sizes') || 'okänd').slice(0, 8),
         markerLast: indicator === [...document.querySelectorAll('head link[rel~="icon"]')].at(-1),
         configured: Boolean(config),
         sourceCount: siteIcons().length
@@ -224,8 +238,11 @@
   }
   scheduleDwell();
   instance.dispose = () => {
+    if (!instance.active) return;
+    instance.active = false;
     clearTimeout(dwellTimer);
     observer?.disconnect();
+    ownerObserver?.disconnect();
     startup?.disconnect();
     for (const type of ['pointerdown', 'keydown', 'wheel', 'touchstart']) {
       document.removeEventListener(type, trustedInteraction, true);

@@ -210,17 +210,17 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         if (!/^https?:/.test(row.url)) return { ...row, status: 'skyddad eller annan sidtyp' };
         if (tab.discarded) return { ...row, status: 'vilande flik – laddas när den öppnas' };
         let detail;
-        try { detail = await chrome.tabs.sendMessage(tab.id, { type: 'diagnostic' }); }
+        try { detail = await chrome.tabs.sendMessage(tab.id, { type: 'diagnostic-v2' }); }
         catch {
           try {
             await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
             await updateTab(tab, true);
-            detail = await chrome.tabs.sendMessage(tab.id, { type: 'diagnostic' });
+            detail = await chrome.tabs.sendMessage(tab.id, { type: 'diagnostic-v2' });
           } catch (error) { return { ...row, status: 'skriptet kunde inte starta', error: String(error?.message || error) }; }
         }
         if (!detail?.configured) {
           await updateTab(tab, true);
-          detail = await chrome.tabs.sendMessage(tab.id, { type: 'diagnostic' }).catch(() => detail);
+          detail = await chrome.tabs.sendMessage(tab.id, { type: 'diagnostic-v2' }).catch(() => detail);
         }
         return { ...row, status: detail?.status || 'okänt', markers: detail?.markers ?? 0,
           oldMarkers: detail?.oldMarkers ?? 0, sourceCount: detail?.sourceCount ?? 0,
