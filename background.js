@@ -119,10 +119,9 @@ async function updateTab(tab, force = false) {
   const color = excluded ? null : colorForAge(ageMinutes(state.clock.total, state.tabs[tab.id].lastUsed), settings);
   const signature = JSON.stringify([color, settings.style, settings.barPosition, settings.barHeight, tab.favIconUrl]);
   if (!force && lastColors.get(tab.id) === signature) return;
-  lastColors.set(tab.id, signature);
   const message = { type: 'indicator', color, style: settings.style, position: settings.barPosition,
     height: settings.barHeight, dwellSeconds: settings.dwellSeconds, faviconUrl: tab.favIconUrl };
-  try { await chrome.tabs.sendMessage(tab.id, message); }
+  try { await chrome.tabs.sendMessage(tab.id, message); lastColors.set(tab.id, signature); }
   catch {
     // A restored or already-open page may have missed the content-script start.
     // Execute the idempotent script and try again while the page is loaded.
@@ -130,7 +129,8 @@ async function updateTab(tab, force = false) {
     try {
       await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
       await chrome.tabs.sendMessage(tab.id, message);
-    } catch { /* Protected, closing, or still loading. */ }
+      lastColors.set(tab.id, signature);
+    } catch { lastColors.delete(tab.id); /* Protected, closing, or still loading. */ }
   }
 }
 
@@ -252,6 +252,10 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           ageMinutes: Math.round(ageMinutes(state.clock.total, state.tabs[tab.id]?.lastUsed ?? state.clock.total) * 10) / 10,
           selected: tab.id === currentTabId && tab.windowId === focusedWindowId,
           idleState,
+          expectedColor: state.excludedTabs.includes(tab.id) || isExcluded(row.url, settings.exclusions) ? null :
+            colorForAge(ageMinutes(state.clock.total, state.tabs[tab.id]?.lastUsed ?? state.clock.total), settings),
+          requestedColor: detail?.requestedColor ?? null,
+          renderedColor: detail?.renderedColor ?? null,
           excluded: state.excludedTabs.includes(tab.id) || isExcluded(row.url, settings.exclusions) };
       }));
       respond({ results });
@@ -304,9 +308,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     })().catch(() => respond({}));
     return true;
   }
+  const tab = sender.tab;
+  if (!tab || sender.frameId !== 0 || !['interaction', 'dwell', 'ready'].includes(message?.type)) return false;
   serialized(async () => {
-    const tab = sender.tab;
-    if (!tab || sender.frameId !== 0 || !['interaction', 'dwell', 'ready'].includes(message?.type)) return;
     ensureTab(tab);
     const now = Date.now();
     if (message.type === 'ready') { await updateTab(tab, true); return; }
@@ -316,8 +320,8 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     state.tabs[tab.id].lastUsed = state.clock.total;
     await save();
     await updateTab(tab);
-  });
-  return false;
+  }).then(() => respond({ ok: true }));
+  return true;
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {

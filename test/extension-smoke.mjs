@@ -133,6 +133,7 @@ try {
   for (const session of pages) {
     assert.deepEqual(await pixel(session, 0), [51, 102, 204]);
     assert.deepEqual(await pixel(session, 15), [53, 185, 107]);
+    await evaluate(session, 'window.__firstFlikIcon = document.querySelector("link[data-flik-v2-indicator]")');
   }
   console.log('Initial pixels passed; changing bar position…');
 
@@ -142,6 +143,7 @@ try {
   for (const session of pages) {
     assert.deepEqual(await pixel(session, 15), [51, 102, 204]);
     assert.equal(await evaluate(session, 'document.querySelectorAll("link[data-flik-v2-indicator][rel~=icon]").length'), 1);
+    assert.equal(await evaluate(session, 'document.querySelector("link[data-flik-v2-indicator]") !== window.__firstFlikIcon'), true);
     assert.equal(await evaluate(session, 'document.querySelector("link[data-flik-v2-indicator][rel~=icon]").getAttribute("sizes")'), '16x16');
   }
 
@@ -164,6 +166,16 @@ try {
   assert.equal(await evaluate(options, 'chrome.storage.local.get("settings").then(value => value.settings.colors.at(-1))'), '#123456');
   await evaluate(options, `(() => { document.querySelector('#colorRows').lastElementChild.querySelector('button').click(); document.querySelector('#settings').requestSubmit(); })()`);
   await eventually(() => evaluate(options, 'chrome.storage.local.get("settings").then(value => value.settings?.colors?.length)'), value => value === 4);
+  const activeTab = await evaluate(options, `(async()=>{const tab=(await chrome.tabs.query({})).find(tab=>tab.url===${JSON.stringify(`${pageUrl}?tab=0`)});return {id:tab.id,windowId:tab.windowId}})()`);
+  const lastUsedBefore = await evaluate(options, `chrome.storage.local.get('flikState').then(value=>value.flikState?.tabs?.[${activeTab.id}]?.lastUsed ?? 0)`);
+  await evaluate(options, `chrome.storage.local.set({settings:{dwellSeconds:1,exclusions:[]}})`);
+  await evaluate(options, `chrome.windows.update(${activeTab.windowId},{focused:true})`);
+  await evaluate(options, `chrome.tabs.update(${activeTab.id},{active:true})`);
+  await eventually(() => evaluate(options, `chrome.storage.local.get('flikState').then(value=>value.flikState?.tabs?.[${activeTab.id}]?.lastUsed)`), value => value > lastUsedBefore, 6000);
+  const activityResponse = await evaluate(options, `chrome.scripting.executeScript({target:{tabId:${activeTab.id}},func:async()=>await chrome.runtime.sendMessage({type:'interaction',visible:true})}).then(results=>results[0].result)`);
+  assert.equal(activityResponse?.ok, true);
+  await eventually(() => evaluate(options, `chrome.runtime.sendMessage({type:'diagnostics'}).then(result=>result.results.find(row=>row.id===${activeTab.id}))`),
+    row => row?.expectedColor === '#35b96b' && row.requestedColor === row.expectedColor && row.renderedColor === row.expectedColor, 6000);
   console.log('Full Chrome extension test passed: twenty tabs, including twelve open before install; diagnostics, cross-origin favicons, position change, restoration.');
 } finally {
   browser.kill('SIGINT');

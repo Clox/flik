@@ -1,10 +1,10 @@
 (() => {
   const OWNER = 'data-flik-v2-owner';
   const previous = globalThis.__flikContentStarted;
-  if (previous?.version === '0.1.9' && previous.active &&
+  if (previous?.version === '0.1.12' && previous.active &&
       document.documentElement?.getAttribute(OWNER) === previous.token) return;
   previous?.dispose?.();
-  const instance = { version: '0.1.9', token: `${Date.now()}-${Math.random()}`, active: true };
+  const instance = { version: '0.1.12', token: `${Date.now()}-${Math.random()}`, active: true };
   globalThis.__flikContentStarted = instance;
   const OWN = 'data-flik-v2-indicator';
   const LEGACY = 'data-flik-indicator';
@@ -22,6 +22,7 @@
   let cleanBaseIcon = null;
   let renderStatus = 'väntar';
   let lastRenderAt = 0;
+  let renderedColor = null;
   let cspBlocked = false;
   let dwellTimer;
   let lastInteraction = 0;
@@ -35,7 +36,8 @@
   }
 
   function send(type) {
-    try { chrome.runtime.sendMessage({ type, visible: document.visibilityState === 'visible' }); } catch { /* Extension reloaded. */ }
+    try { chrome.runtime.sendMessage({ type, visible: document.visibilityState === 'visible' })?.catch?.(() => {}); }
+    catch { /* Extension reloaded. */ }
   }
 
   function scheduleDwell() {
@@ -100,6 +102,7 @@
     renderSerial++;
     indicator?.remove();
     indicator = null;
+    renderedColor = null;
     restoreOriginalIcons();
     sourceKey = '';
     renderStatus = 'ingen markering';
@@ -173,7 +176,7 @@
     const sources = cleanBaseIcon ? [cleanBaseIcon] :
       cachedBrowserIcon ? [cachedBrowserIcon, ...siteSources] : [...siteSources];
     const key = JSON.stringify([sourceFingerprint, config.color, config.style, config.position, config.height]);
-    if (!force && key === sourceKey && indicator?.isConnected && indicator === document.head.lastElementChild) return;
+    if (!force && key === sourceKey && renderedColor === config.color && indicator?.isConnected && indicator === document.head.lastElementChild) return;
     sourceKey = key;
     renderStatus = 'ritar';
     const serial = ++renderSerial;
@@ -200,20 +203,21 @@
         }
         catch { trySource(index + 1); return; }
         cleanBaseIcon = base;
-        if (!indicator) {
-          indicator = document.createElement('link');
-          indicator.rel = 'icon';
-          indicator.type = 'image/png';
-          indicator.setAttribute('sizes', '16x16');
-          indicator.setAttribute(OWN, '');
-        }
+        const nextIndicator = document.createElement('link');
+        nextIndicator.rel = 'icon';
+        nextIndicator.type = 'image/png';
+        nextIndicator.setAttribute('sizes', '16x16');
+        nextIndicator.setAttribute(OWN, '');
         // Keep one favicon candidate. Chrome can continue displaying one of
         // the site's links even when our generated link is the last one.
         stashOriginalIcons();
-        indicator.href = data;
+        nextIndicator.href = data;
         lastRenderAt = Date.now();
+        indicator?.remove();
+        indicator = nextIndicator;
         document.head.appendChild(indicator);
         removeOtherIndicators();
+        renderedColor = config.color;
         renderStatus = 'ikonlänk skapad';
       };
       const img = new Image();
@@ -276,6 +280,8 @@
         markerLast: indicator === [...document.querySelectorAll('head link[rel~="icon"]')].at(-1),
         soleIcon: Boolean(indicator?.isConnected) && document.querySelectorAll('head link[rel~="icon"]').length === 1,
         configured: Boolean(config),
+        requestedColor: config?.color || null,
+        renderedColor,
         sourceCount: siteIcons().length
       });
       return;
