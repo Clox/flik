@@ -1,8 +1,8 @@
 (() => {
   const previous = globalThis.__flikContentStarted;
-  if (previous?.version === '0.1.4') return;
+  if (previous?.version === '0.1.5') return;
   previous?.dispose?.();
-  const instance = { version: '0.1.4' };
+  const instance = { version: '0.1.5' };
   globalThis.__flikContentStarted = instance;
   const OWN = 'data-flik-indicator';
   const staleHrefs = new Set();
@@ -65,9 +65,9 @@
     ].filter(Boolean))];
   }
 
-  function deactivateOtherIndicators() {
+  function removeOtherIndicators() {
     for (const link of document.querySelectorAll(`link[${OWN}]`)) {
-      if (link !== indicator && /\bicon\b/i.test(link.rel)) link.rel = '';
+      if (link !== indicator) link.remove();
     }
   }
 
@@ -106,7 +106,7 @@
   function render(force = false) {
     if (!document.head || !config) return;
     if (!config.color) { removeIndicator(); return; }
-    deactivateOtherIndicators();
+    removeOtherIndicators();
     const siteSources = siteIcons();
     const sourceFingerprint = JSON.stringify(siteSources);
     if (sourceFingerprint !== cachedSourceKey) {
@@ -149,7 +149,7 @@
         }
         indicator.href = data;
         document.head.appendChild(indicator);
-        deactivateOtherIndicators();
+        removeOtherIndicators();
         renderStatus = 'visas';
       };
       img.onerror = () => trySource(index + 1);
@@ -161,7 +161,7 @@
   function startObserver() {
     if (!document.head || observer) return;
     observer = new MutationObserver(records => {
-      deactivateOtherIndicators();
+      removeOtherIndicators();
       const iconLink = node => node instanceof HTMLLinkElement && !node.hasAttribute(OWN) &&
         node.rel.toLowerCase().split(/\s+/).includes('icon');
       const changed = records.some(record => {

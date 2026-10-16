@@ -102,12 +102,13 @@ try {
   await eventually(() => Promise.all(pages.map(faviconHref)), values => values.every(value => value?.startsWith('data:image/png')));
   // Simulate a surviving marker from an older extension context in every tab.
   await Promise.all(pages.map(session => evaluate(session, `(() => { const link = document.createElement('link'); link.rel = 'icon'; link.setAttribute('data-flik-indicator', ''); link.href = document.querySelector('link[data-flik-indicator]').href; document.head.appendChild(link); })()`)));
+  await evaluate(page, `(() => { const legacy = document.createElement('link'); legacy.rel = 'icon'; legacy.setAttribute('data-flik-indicator', ''); legacy.href = document.querySelector('link[data-flik-indicator]').href; const observer = new MutationObserver(records => { if (records.some(record => [...record.addedNodes].some(node => node instanceof HTMLLinkElement && node.hasAttribute('data-flik-indicator') && node !== legacy)) && !legacy.isConnected) document.head.appendChild(legacy); }); observer.observe(document.head, {childList:true}); window.__legacyFlikObserver = observer; })()`);
   await eventually(() => Promise.all(pages.map(session => evaluate(session, `[...document.querySelectorAll('link[data-flik-indicator]')].filter(link => /\\bicon\\b/i.test(link.rel)).length`))), values => values.every(value => value === 1));
   console.log('Indicators visible; running diagnostics…');
   const diagnostics = await evaluate(options, 'chrome.runtime.sendMessage({type:"diagnostics"})');
   assert.equal(diagnostics.results.filter(row => row.url.startsWith(pageUrl)).length, 20);
   assert.equal(diagnostics.results.filter(row => row.markers === 1).length, 20);
-  assert.equal(diagnostics.results.filter(row => row.oldMarkers === 1).length, 20);
+  assert.equal(diagnostics.results.filter(row => row.oldMarkers === 0).length, 20);
   console.log('Diagnostics passed; checking colors…');
   for (const session of pages) {
     assert.deepEqual(await pixel(session, 0), [51, 102, 204]);
