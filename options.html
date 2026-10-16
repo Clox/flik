@@ -19,6 +19,14 @@
       <section class="card"><h2>Undantag</h2><p>En domän eller URL per rad. Exempel: <code>gmail.com</code>, <code>*.example.com</code> eller <code>https://example.com/private/*</code>. Högerklicka på en sida för att undanta just den fliken tills den stängs.</p><label class="full">Webbplatser utan markering<textarea id="exclusions" rows="5" placeholder="gmail.com"></textarea></label></section>
       <div class="footer"><span id="status" role="status"></span><button type="submit">Spara inställningar</button></div>
     </form>
+    <section class="card">
+      <h2>Flikdiagnos</h2>
+      <p>Kontrollera vilka öppna flikar Flik når. Kontrollen försöker också starta Flik på vanliga webbsidor där skriptet saknas. Resultatet stannar i din webbläsare.</p>
+      <button id="runDiagnostics" type="button">Kontrollera flikar</button>
+      <button id="copyDiagnostics" type="button" hidden>Kopiera resultat</button>
+      <div id="diagnosticSummary" role="status"></div>
+      <div id="diagnosticResults"></div>
+    </section>
   </main>
   <script type="module" src="options.js"></script>
 </body>

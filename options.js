@@ -53,3 +53,45 @@ form.addEventListener('submit', async event => {
 
 const saved = await chrome.storage.local.get('settings');
 fill(normalizeSettings(saved.settings || defaults));
+let diagnosticText = '';
+field('copyDiagnostics').addEventListener('click', async () => {
+  await navigator.clipboard.writeText(diagnosticText);
+  field('copyDiagnostics').textContent = 'Kopierat';
+  setTimeout(() => { field('copyDiagnostics').textContent = 'Kopiera resultat'; }, 2000);
+});
+
+field('runDiagnostics').addEventListener('click', async () => {
+  const button = field('runDiagnostics');
+  const summary = field('diagnosticSummary');
+  const container = field('diagnosticResults');
+  button.disabled = true;
+  field('copyDiagnostics').hidden = true;
+  summary.textContent = 'Kontrollerar öppna flikar…';
+  container.replaceChildren();
+  try {
+    const result = await chrome.runtime.sendMessage({ type: 'diagnostics' });
+    if (result?.error) throw new Error(result.error);
+    const rows = result?.results || [];
+    const marked = rows.filter(row => row.markers === 1).length;
+    const regular = rows.filter(row => /^https?:/.test(row.url)).length;
+    summary.textContent = `${marked} av ${regular} vanliga webbsidor har markering.`;
+    const list = document.createElement('ul');
+    const lines = [`Flik ${chrome.runtime.getManifest().version}: ${summary.textContent}`];
+    for (const row of rows) {
+      const item = document.createElement('li');
+      let label;
+      try { const url = new URL(row.url); label = `${url.hostname}${url.pathname}`; }
+      catch { label = row.url || `Flik ${row.id}`; }
+      item.textContent = `${label}: ${row.excluded ? 'undantagen' : row.status}${row.error ? ` (${row.error})` : ''}`;
+      lines.push(item.textContent);
+      list.appendChild(item);
+    }
+    container.appendChild(list);
+    diagnosticText = lines.join('\n');
+    field('copyDiagnostics').hidden = false;
+  } catch (error) {
+    summary.textContent = `Diagnosen misslyckades: ${error.message}`;
+  } finally {
+    button.disabled = false;
+  }
+});

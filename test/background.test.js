@@ -5,6 +5,7 @@ test('installation injects content script into already open regular tabs', async
   const listeners = {};
   const event = name => ({ addListener(fn) { listeners[name] = fn; } });
   const injected = [];
+  let missed = true;
   const tabs = [
     { id: 1, url: 'https://example.com/', windowId: 10, active: true },
     { id: 2, url: 'http://example.org/', windowId: 10, active: false },
@@ -15,7 +16,7 @@ test('installation injects content script into already open regular tabs', async
     windows: { WINDOW_ID_NONE: -1, getAll: async () => [{ id: 10, focused: true, tabs }], onFocusChanged: event('focus') },
     tabs: {
       query: async () => tabs,
-      sendMessage: async () => {},
+      sendMessage: async id => { if (id === 2 && missed) { missed = false; throw new Error('Receiving end does not exist'); } },
       onActivated: event('activated'), onCreated: event('created'),
       onUpdated: event('updated'), onRemoved: event('removed')
     },
@@ -34,8 +35,8 @@ test('installation injects content script into already open regular tabs', async
   await import('../background.js');
   listeners.installed();
   const start = Date.now();
-  while (injected.length < 2 && Date.now() - start < 1000) await new Promise(resolve => setTimeout(resolve, 10));
-  assert.deepEqual(injected.map(item => item.target.tabId).sort(), [1, 2]);
+  while (injected.length < 3 && Date.now() - start < 1000) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.deepEqual(injected.map(item => item.target.tabId).sort(), [1, 2, 2]);
   assert.ok(injected.every(item => item.files?.includes('content.js')));
   delete globalThis.chrome;
 });

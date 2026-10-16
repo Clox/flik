@@ -101,8 +101,18 @@ async function updateTab(tab, force = false) {
   const signature = JSON.stringify([color, settings.style, settings.barPosition, settings.barHeight, tab.favIconUrl]);
   if (!force && lastColors.get(tab.id) === signature) return;
   lastColors.set(tab.id, signature);
-  try { await chrome.tabs.sendMessage(tab.id, { type: 'indicator', color, style: settings.style, position: settings.barPosition, height: settings.barHeight, dwellSeconds: settings.dwellSeconds, faviconUrl: tab.favIconUrl }); }
-  catch { /* Protected pages, unloaded/discarded tabs, and pages still loading. */ }
+  const message = { type: 'indicator', color, style: settings.style, position: settings.barPosition,
+    height: settings.barHeight, dwellSeconds: settings.dwellSeconds, faviconUrl: tab.favIconUrl };
+  try { await chrome.tabs.sendMessage(tab.id, message); }
+  catch {
+    // A restored or already-open page may have missed the content-script start.
+    // Execute the idempotent script and try again while the page is loaded.
+    if (tab.discarded) return;
+    try {
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
+      await chrome.tabs.sendMessage(tab.id, message);
+    } catch { /* Protected, closing, or still loading. */ }
+  }
 }
 
 async function updateAll(force = false) {
@@ -191,6 +201,34 @@ chrome.tabs.onRemoved.addListener(tabId => serialized(async () => {
 }));
 
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  if (message?.type === 'diagnostics' && sender.url?.startsWith(chrome.runtime.getURL(''))) {
+    (async () => {
+      await initialize();
+      const tabs = await chrome.tabs.query({});
+      const results = await Promise.all(tabs.map(async tab => {
+        const row = { id: tab.id, url: tab.url || '', discarded: Boolean(tab.discarded) };
+        if (!/^https?:/.test(row.url)) return { ...row, status: 'skyddad eller annan sidtyp' };
+        if (tab.discarded) return { ...row, status: 'vilande flik – laddas när den öppnas' };
+        let detail;
+        try { detail = await chrome.tabs.sendMessage(tab.id, { type: 'diagnostic' }); }
+        catch {
+          try {
+            await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
+            await updateTab(tab, true);
+            detail = await chrome.tabs.sendMessage(tab.id, { type: 'diagnostic' });
+          } catch (error) { return { ...row, status: 'skriptet kunde inte starta', error: String(error?.message || error) }; }
+        }
+        if (!detail?.configured) {
+          await updateTab(tab, true);
+          detail = await chrome.tabs.sendMessage(tab.id, { type: 'diagnostic' }).catch(() => detail);
+        }
+        return { ...row, status: detail?.status || 'okänt', markers: detail?.markers ?? 0, sourceCount: detail?.sourceCount ?? 0,
+          excluded: state.excludedTabs.includes(tab.id) || isExcluded(row.url, settings.exclusions) };
+      }));
+      respond({ results });
+    })().catch(error => respond({ error: String(error?.message || error) }));
+    return true;
+  }
   if (message?.type === 'favicon-fallback') {
     if (!sender.tab?.id || sender.frameId !== 0 || !/^https?:/.test(sender.tab.url || '')) return false;
     (async () => {

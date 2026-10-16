@@ -9,9 +9,11 @@ Flik visar hur länge sedan du faktiskt använde en flik genom en liten färgmar
 3. Välj **Load unpacked / Läs in opaketerat tillägg** och välj den här projektmappen.
 4. Öppna Fliks inställningar via tilläggets verktygsfältsikon. Flik startar också i vanliga webbsidor som redan är öppna.
 
-Om du uppdaterar en tidigare installerad version, tryck **Reload / Läs in igen** på Fliks kort i `chrome://extensions`. Version 0.1.2 startar i redan öppna flikar, hanterar faviconer från andra domäner och tar bort kvarlämnade Flik-ikoner från äldre versioner.
+Om du uppdaterar en tidigare installerad version, tryck **Reload / Läs in igen** på Fliks kort i `chrome://extensions`. Version 0.1.3 har en flikdiagnos längst ned på inställningssidan. Den visar vilka flikar som nås och försöker starta skriptet igen där det saknas.
 
-Ingen byggning, server eller npm-installation behövs. Kör `npm test` för enhetstester. `npm run test:chrome` kör ett fullständigt tilläggstest i en tillfällig Chrome-profil med fem flikar, varav tre öppnas före tillägget installeras. Testet kräver lokal Chrome och möjlighet att starta den med DevTools pipe. `test/browser-smoke.mjs` testar också innehållsskriptet separat via DevTools-port 9228.
+Om några flikar saknar markering: öppna inställningarna, tryck **Kontrollera flikar**, och se status per flik. **Kopiera resultat** ger en rapport som du kan dela vid felsökning. Rapporten innehåller domän och sökväg, men utelämnar frågesträng och fragment; granska den före delning. En vilande flik får markering när Chrome laddar den.
+
+Ingen byggning, server eller npm-installation behövs. Kör `npm test` för enhetstester. `npm run test:chrome` kör ett fullständigt tilläggstest i en tillfällig Chrome-profil med tjugo flikar, varav tolv öppnas före tillägget installeras. Testet kräver lokal Chrome och möjlighet att starta den med DevTools pipe. `test/browser-smoke.mjs` testar också innehållsskriptet separat via DevTools-port 9228.
 
 ## Så fungerar det
 

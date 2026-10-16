@@ -13,6 +13,7 @@
   let renderSerial = 0;
   let cachedBrowserIcon = null;
   let cachedSourceKey = '';
+  let renderStatus = 'väntar';
   let dwellTimer;
   let lastInteraction = 0;
   let observer;
@@ -60,6 +61,7 @@
     for (const own of document.querySelectorAll(`link[${OWN}]`)) own.remove();
     indicator = null;
     sourceKey = '';
+    renderStatus = 'ingen markering';
   }
 
   function draw(img, color, style, position, height) {
@@ -99,18 +101,19 @@
     const key = JSON.stringify([sources, config]);
     if (!force && key === sourceKey && indicator?.isConnected && indicator === document.head.lastElementChild) return;
     sourceKey = key;
+    renderStatus = 'ritar';
     const serial = ++renderSerial;
     const trySource = index => {
       if (serial !== renderSerial) return;
       if (index >= sources.length) {
-        if (cachedBrowserIcon) { removeIndicator(); return; }
+        if (cachedBrowserIcon) { removeIndicator(); renderStatus = 'favicon kunde inte ritas'; return; }
         chrome.runtime.sendMessage({ type: 'favicon-fallback' }).then(result => {
           if (serial !== renderSerial) return;
-          if (!result?.dataUrl) { removeIndicator(); return; }
+          if (!result?.dataUrl) { removeIndicator(); renderStatus = 'ingen läsbar favicon'; return; }
           cachedBrowserIcon = result.dataUrl;
           sources.push(result.dataUrl);
           trySource(index);
-        }).catch(() => { if (serial === renderSerial) removeIndicator(); });
+        }).catch(() => { if (serial === renderSerial) { removeIndicator(); renderStatus = 'favicon-API svarade inte'; } });
         return;
       }
       const source = sources[index];
@@ -130,6 +133,7 @@
         }
         indicator.href = data;
         document.head.appendChild(indicator);
+        renderStatus = 'visas';
       };
       img.onerror = () => trySource(index + 1);
       img.src = source;
@@ -155,7 +159,16 @@
     send('ready');
   }
 
-  chrome.runtime.onMessage.addListener(message => {
+  chrome.runtime.onMessage.addListener((message, _sender, respond) => {
+    if (message?.type === 'diagnostic') {
+      respond({
+        status: renderStatus,
+        markers: document.querySelectorAll(`link[${OWN}]`).length,
+        configured: Boolean(config),
+        sourceCount: siteIcons().length
+      });
+      return;
+    }
     if (message?.type !== 'indicator') return;
     const faviconUrl = message.faviconUrl === indicator?.href || staleHrefs.has(message.faviconUrl) ? config?.faviconUrl : message.faviconUrl;
     config = { color: message.color, style: message.style, position: message.position, height: message.height, dwellSeconds: message.dwellSeconds, faviconUrl };

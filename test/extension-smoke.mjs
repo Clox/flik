@@ -77,19 +77,22 @@ async function eventually(fn, predicate, timeout = 7000) {
 }
 
 try {
+  console.log('Starting Chrome and opening initial tabs…');
   const preexisting = [];
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 12; i++) {
     preexisting.push((await send('Target.createTarget', { url: `${pageUrl}?tab=${i}` })).targetId);
   }
   const { id: extensionId } = await send('Extensions.loadUnpacked', { path: extensionPath });
+  console.log('Extension loaded; opening remaining tabs…');
   const targetIds = [...preexisting];
-  for (let i = 3; i < 5; i++) {
+  for (let i = 12; i < 20; i++) {
     targetIds.push((await send('Target.createTarget', { url: `${pageUrl}?tab=${i}` })).targetId);
   }
   const pages = await Promise.all(targetIds.map(attach));
   const page = pages[0];
   const { targetId: optionsTarget } = await send('Target.createTarget', { url: `chrome-extension://${extensionId}/options.html` });
   const options = await attach(optionsTarget);
+  console.log('Options page opened; waiting for indicators…');
   await eventually(() => evaluate(options, 'document.readyState'), value => value === 'complete');
   assert.equal(await evaluate(options, 'typeof chrome.storage.local'), 'object');
 
@@ -97,6 +100,11 @@ try {
   const pixel = (session, y) => evaluate(session, `(async()=>{const image=new Image();image.src=document.querySelector('link[data-flik-indicator]').href;await image.decode();const canvas=document.createElement('canvas');canvas.width=canvas.height=16;const ctx=canvas.getContext('2d');ctx.drawImage(image,0,0,16,16);return [...ctx.getImageData(8,${y},1,1).data].slice(0,3)})()`);
 
   await eventually(() => Promise.all(pages.map(faviconHref)), values => values.every(value => value?.startsWith('data:image/png')));
+  console.log('Indicators visible; running diagnostics…');
+  const diagnostics = await evaluate(options, 'chrome.runtime.sendMessage({type:"diagnostics"})');
+  assert.equal(diagnostics.results.filter(row => row.url.startsWith(pageUrl)).length, 20);
+  assert.equal(diagnostics.results.filter(row => row.markers === 1).length, 20);
+  console.log('Diagnostics passed; checking colors…');
   for (const session of pages) {
     assert.deepEqual(await pixel(session, 0), [51, 102, 204]);
     assert.deepEqual(await pixel(session, 15), [53, 185, 107]);
@@ -111,7 +119,7 @@ try {
 
   await evaluate(options, `chrome.storage.local.set({settings:{exclusions:['127.0.0.1']}})`);
   await eventually(() => Promise.all(pages.map(session => evaluate(session, 'document.querySelectorAll("link[data-flik-indicator]").length'))), values => values.every(value => value === 0));
-  console.log('Full Chrome extension test passed: five tabs, including three open before install; cross-origin favicons, position change, restoration.');
+  console.log('Full Chrome extension test passed: twenty tabs, including twelve open before install; diagnostics, cross-origin favicons, position change, restoration.');
 } finally {
   browser.kill('SIGINT');
   await Promise.race([new Promise(resolve => browser.once('exit', resolve)), new Promise(resolve => setTimeout(resolve, 2000))]);
