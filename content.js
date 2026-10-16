@@ -1,10 +1,10 @@
 (() => {
   const OWNER = 'data-flik-v2-owner';
   const previous = globalThis.__flikContentStarted;
-  if (previous?.version === '0.1.8' && previous.active &&
+  if (previous?.version === '0.1.9' && previous.active &&
       document.documentElement?.getAttribute(OWNER) === previous.token) return;
   previous?.dispose?.();
-  const instance = { version: '0.1.8', token: `${Date.now()}-${Math.random()}`, active: true };
+  const instance = { version: '0.1.9', token: `${Date.now()}-${Math.random()}`, active: true };
   globalThis.__flikContentStarted = instance;
   const OWN = 'data-flik-v2-indicator';
   const LEGACY = 'data-flik-indicator';
@@ -19,6 +19,7 @@
   let renderSerial = 0;
   let cachedBrowserIcon = null;
   let cachedSourceKey = '';
+  let cleanBaseIcon = null;
   let renderStatus = 'väntar';
   let lastRenderAt = 0;
   let cspBlocked = false;
@@ -82,6 +83,13 @@
     ].filter(Boolean))];
   }
 
+  function linkedIconUrls() {
+    return [...originalIcons, ...document.querySelectorAll('head link[rel]')]
+      .filter(link => !link.hasAttribute(OWN) && !link.hasAttribute(LEGACY) &&
+        link.rel.toLowerCase().split(/\s+/).includes('icon') && link.href)
+      .map(link => link.href);
+  }
+
   function removeOtherIndicators() {
     for (const link of document.querySelectorAll(`link[${OWN}], link[${LEGACY}]`)) {
       if (link !== indicator) link.remove();
@@ -142,18 +150,29 @@
     return canvas.toDataURL('image/png');
   }
 
+  function cleanCopy(img) {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 16;
+    canvas.getContext('2d').drawImage(img, 0, 0, 16, 16);
+    return canvas.toDataURL('image/png');
+  }
+
   function render(force = false) {
     if (!document.head || !config || !isOwner()) return;
     if (!config.color) { removeIndicator(); removeOtherIndicators(); return; }
     removeOtherIndicators();
     const siteSources = siteIcons();
-    const sourceFingerprint = JSON.stringify(siteSources);
+    // Chrome may start reporting our rendered favicon as the tab favicon.
+    // Only changes to the site's actual icon links invalidate the clean base.
+    const sourceFingerprint = JSON.stringify(linkedIconUrls());
     if (sourceFingerprint !== cachedSourceKey) {
       cachedSourceKey = sourceFingerprint;
       cachedBrowserIcon = null;
+      cleanBaseIcon = null;
     }
-    const sources = cachedBrowserIcon ? [cachedBrowserIcon, ...siteSources] : [...siteSources];
-    const key = JSON.stringify([sources, config]);
+    const sources = cleanBaseIcon ? [cleanBaseIcon] :
+      cachedBrowserIcon ? [cachedBrowserIcon, ...siteSources] : [...siteSources];
+    const key = JSON.stringify([sourceFingerprint, config.color, config.style, config.position, config.height]);
     if (!force && key === sourceKey && indicator?.isConnected && indicator === document.head.lastElementChild) return;
     sourceKey = key;
     renderStatus = 'ritar';
@@ -172,15 +191,15 @@
         return;
       }
       const source = sources[index];
-      const img = new Image();
-      // Same-origin and data URLs remain canvas-readable. Cross-origin icons need CORS.
-      try { if (new URL(source).origin !== location.origin && !source.startsWith('data:')) img.crossOrigin = 'anonymous'; }
-      catch { trySource(index + 1); return; }
-      img.onload = () => {
+      const acceptImage = img => {
         if (serial !== renderSerial || !config?.color || !document.head || !isOwner()) return;
-        let data;
-        try { data = draw(img, config.color, config.style, config.position, config.height); }
+        let data, base;
+        try {
+          base = cleanBaseIcon || cleanCopy(img);
+          data = draw(img, config.color, config.style, config.position, config.height);
+        }
         catch { trySource(index + 1); return; }
+        cleanBaseIcon = base;
         if (!indicator) {
           indicator = document.createElement('link');
           indicator.rel = 'icon';
@@ -197,7 +216,22 @@
         removeOtherIndicators();
         renderStatus = 'ikonlänk skapad';
       };
-      img.onerror = () => trySource(index + 1);
+      const img = new Image();
+      // Same-origin and data URLs remain canvas-readable. Cross-origin icons need CORS.
+      try { if (new URL(source).origin !== location.origin && !source.startsWith('data:')) img.crossOrigin = 'anonymous'; }
+      catch { trySource(index + 1); return; }
+      img.onload = () => acceptImage(img);
+      img.onerror = () => {
+        if (!/^https?:/.test(source)) { trySource(index + 1); return; }
+        chrome.runtime.sendMessage({ type: 'favicon-source', url: source }).then(result => {
+          if (serial !== renderSerial) return;
+          if (!result?.dataUrl) { trySource(index + 1); return; }
+          const recovered = new Image();
+          recovered.onload = () => acceptImage(recovered);
+          recovered.onerror = () => trySource(index + 1);
+          recovered.src = result.dataUrl;
+        }).catch(() => trySource(index + 1));
+      };
       img.src = source;
     };
     trySource(0);

@@ -9,7 +9,8 @@ const contentScript = await readFile(new URL('../content.js', import.meta.url), 
 const icon = color => `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="${color}"/></svg>`)}`;
 const server = http.createServer((req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.end(`<title>Flik test</title><link rel="icon" href="${icon('#3366cc')}"><link rel="icon" data-flik-indicator href="${icon('#ff0000')}"><p>Test</p>`);
+  res.end(req.url.includes('noicon=1') ? '<title>Flik test</title><p>Test</p>' :
+    `<title>Flik test</title><link rel="icon" href="${icon('#3366cc')}"><link rel="icon" data-flik-indicator href="${icon('#ff0000')}"><p>Test</p>`);
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const siteUrl = `http://127.0.0.1:${server.address().port}/`;
@@ -78,7 +79,16 @@ try {
   await evaluate(sessionId, `globalThis.__flikOnMessage(${JSON.stringify({ ...config, color: null })})`);
   await eventually(() => evaluate(sessionId, 'document.querySelector("[data-flik-v2-indicator]")'), value => value === null);
   assert.equal(await evaluate(sessionId, 'document.querySelectorAll("link[rel=icon]").length'), 2);
-  console.log('Chrome content test passed: stale-marker cleanup, position changes, dynamic favicon and restoration.');
+  await send('Page.navigate', { url: `${siteUrl}?noicon=1` }, sessionId);
+  await eventually(() => evaluate(sessionId, 'document.readyState'), value => value === 'complete');
+  await evaluate(sessionId, `globalThis.__fallback = ${JSON.stringify(icon('#3366cc'))}; globalThis.chrome = {runtime:{sendMessage(message){return Promise.resolve({dataUrl:globalThis.__fallback})},onMessage:{addListener(fn){globalThis.__flikOnMessage=fn},removeListener(){}}}}; ${contentScript}`);
+  await evaluate(sessionId, `globalThis.__flikOnMessage(${JSON.stringify(config)})`);
+  await eventually(() => evaluate(sessionId, 'document.querySelector("[data-flik-v2-indicator]")?.href'), value => value?.startsWith('data:image/png'));
+  await eventually(() => pixel(15), value => JSON.stringify(value) === '[53,185,107]');
+  await evaluate(sessionId, `globalThis.__fallback = document.querySelector('[data-flik-v2-indicator]').href; globalThis.__flikOnMessage(${JSON.stringify({ ...config, color: '#e65454', position: 'top', faviconUrl: `${siteUrl}bad.png` })})`);
+  await eventually(() => pixel(0), value => JSON.stringify(value) === '[230,84,84]');
+  assert.deepEqual(await pixel(15), [51, 102, 204]);
+  console.log('Chrome content test passed: stale-marker cleanup, position changes without stacked bars, dynamic favicon and restoration.');
 } finally {
   await send('Target.closeTarget', { targetId });
   socket.close();

@@ -233,6 +233,34 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     })().catch(error => respond({ error: String(error?.message || error) }));
     return true;
   }
+  if (message?.type === 'favicon-source') {
+    if (!sender.tab?.id || sender.frameId !== 0 || !/^https?:/.test(sender.tab.url || '')) return false;
+    (async () => {
+      const source = new URL(message.url);
+      if (!['http:', 'https:'].includes(source.protocol)) throw new Error('Invalid favicon URL');
+      const response = await fetch(source.href, { credentials: 'omit', signal: AbortSignal.timeout(5000) });
+      if (!response.ok || !response.body) throw new Error('Favicon unavailable');
+      const mime = response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase();
+      if (!mime?.startsWith('image/') || Number(response.headers.get('content-length') || 0) > 262144)
+        throw new Error('Invalid favicon response');
+      const reader = response.body.getReader();
+      const chunks = [];
+      let length = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        length += value.length;
+        if (length > 262144) { await reader.cancel(); throw new Error('Favicon too large'); }
+        chunks.push(value);
+      }
+      if (!length) throw new Error('Empty favicon');
+      const bytes = new Uint8Array(length);
+      let offset = 0;
+      for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+      respond({ dataUrl: `data:${mime};base64,` + btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join('')) });
+    })().catch(() => respond({}));
+    return true;
+  }
   if (message?.type === 'favicon-fallback') {
     if (!sender.tab?.id || sender.frameId !== 0 || !/^https?:/.test(sender.tab.url || '')) return false;
     (async () => {

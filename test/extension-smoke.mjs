@@ -134,9 +134,11 @@ try {
     assert.deepEqual(await pixel(session, 0), [51, 102, 204]);
     assert.deepEqual(await pixel(session, 15), [53, 185, 107]);
   }
+  console.log('Initial pixels passed; changing bar position…');
 
   await evaluate(options, `chrome.storage.local.set({settings:{barPosition:'top',colors:['#e65454','#f5a623','#e65454','#9299a5']}})`);
   await eventually(() => Promise.all(pages.map(session => pixel(session, 0))), values => values.every(value => JSON.stringify(value) === '[230,84,84]'));
+  console.log('Position change passed; checking each tab…');
   for (const session of pages) {
     assert.deepEqual(await pixel(session, 15), [51, 102, 204]);
     assert.equal(await evaluate(session, 'document.querySelectorAll("link[data-flik-v2-indicator][rel~=icon]").length'), 1);
