@@ -58,7 +58,7 @@ try {
   const config = { type: 'indicator', color: '#35b96b', style: 'bar', position: 'bottom', height: 3, dwellSeconds: 10 };
   await evaluate(sessionId, `globalThis.__flikOnMessage(${JSON.stringify(config)})`);
   const first = await eventually(() => evaluate(sessionId, 'document.querySelector("[data-flik-v2-indicator]")?.href'), value => value?.startsWith('data:image/png'));
-  assert.equal(await evaluate(sessionId, 'document.querySelectorAll("link[rel=icon]").length'), 2);
+  assert.equal(await evaluate(sessionId, 'document.querySelectorAll("link[rel=icon]").length'), 1);
   const pixel = async y => evaluate(sessionId, `(async()=>{const img=new Image();img.src=document.querySelector('[data-flik-v2-indicator]').href;await img.decode();const c=document.createElement('canvas');c.width=c.height=16;const x=c.getContext('2d');x.drawImage(img,0,0);return [...x.getImageData(8,${y},1,1).data].slice(0,3)})()`);
   assert.deepEqual(await pixel(0), [51, 102, 204]);
   assert.deepEqual(await pixel(15), [53, 185, 107]);
@@ -69,16 +69,16 @@ try {
   await evaluate(sessionId, `globalThis.__flikOnMessage(${JSON.stringify(config)})`);
   await eventually(() => pixel(0), value => JSON.stringify(value) === '[51,102,204]');
   assert.deepEqual(await pixel(15), [53, 185, 107]);
-  await evaluate(sessionId, `document.querySelector('link[rel=icon]:not([data-flik-v2-indicator])').href = ${JSON.stringify(icon('#cc6633'))}`);
+  await evaluate(sessionId, `(() => { const link = document.createElement('link'); link.rel = 'icon'; link.href = ${JSON.stringify(icon('#cc6633'))}; window.__newIcon = link; document.head.appendChild(link); })()`);
   const second = await eventually(() => evaluate(sessionId, 'document.querySelector("[data-flik-v2-indicator]")?.href'), value => value?.startsWith('data:image/png') && value !== first);
   assert.notEqual(second, first);
-  await evaluate(sessionId, 'document.querySelector("link[rel=icon]:not([data-flik-v2-indicator])").remove()');
-  await evaluate(sessionId, `globalThis.__flikOnMessage(${JSON.stringify({ ...config, faviconUrl: icon('#0088aa') })})`);
+  assert.equal(await evaluate(sessionId, 'document.querySelectorAll("link[rel=icon]").length'), 1);
+  await evaluate(sessionId, `window.__newIcon.href = ${JSON.stringify(icon('#aa33cc'))}`);
   await eventually(() => evaluate(sessionId, 'document.querySelector("[data-flik-v2-indicator]")?.href'), value => value?.startsWith('data:image/png') && value !== second);
   await evaluate(sessionId, `globalThis.__flikOnMessage(${JSON.stringify({ ...config, color: null })})`);
   await eventually(() => evaluate(sessionId, 'document.querySelector("[data-flik-v2-indicator]")'), value => value === null);
-  assert.equal(await evaluate(sessionId, 'document.querySelectorAll("link[rel=icon]").length'), 0);
-  console.log('Chrome content test passed: stale-marker cleanup, position changes, dynamic favicon, fallback and restoration.');
+  assert.equal(await evaluate(sessionId, 'document.querySelectorAll("link[rel=icon]").length'), 2);
+  console.log('Chrome content test passed: stale-marker cleanup, position changes, dynamic favicon and restoration.');
 } finally {
   await send('Target.closeTarget', { targetId });
   socket.close();

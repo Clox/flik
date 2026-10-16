@@ -226,6 +226,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           oldMarkers: detail?.oldMarkers ?? 0, sourceCount: detail?.sourceCount ?? 0,
           cspBlocked: Boolean(detail?.cspBlocked),
           iconSizes: detail?.iconSizes || [], markerLast: Boolean(detail?.markerLast),
+          soleIcon: Boolean(detail?.soleIcon),
           excluded: state.excludedTabs.includes(tab.id) || isExcluded(row.url, settings.exclusions) };
       }));
       respond({ results });

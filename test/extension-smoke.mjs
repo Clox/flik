@@ -122,6 +122,13 @@ try {
   assert.equal(diagnostics.results.filter(row => row.url.startsWith(pageUrl)).length, 20);
   assert.equal(diagnostics.results.filter(row => row.markers === 1).length, 20);
   assert.equal(diagnostics.results.filter(row => row.oldMarkers === 0).length, 20);
+  assert.equal(diagnostics.results.filter(row => row.soleIcon).length, 20);
+  // Sites and other extensions can replace the head's favicon links at any time.
+  await evaluate(page, `(() => { const link = document.createElement('link'); link.rel = 'icon'; link.href = ${JSON.stringify(iconUrl)}; document.head.appendChild(link); })()`);
+  await eventually(() => evaluate(page, 'document.querySelectorAll("head link[rel~=icon]").length'), count => count === 1);
+  await evaluate(page, 'document.querySelector("link[data-flik-v2-indicator]").remove()');
+  await eventually(() => faviconHref(page), value => value?.startsWith('data:image/png'));
+  assert.equal(await evaluate(page, 'document.querySelectorAll("head link[rel~=icon]").length'), 1);
   console.log('Diagnostics passed; checking colors…');
   for (const session of pages) {
     assert.deepEqual(await pixel(session, 0), [51, 102, 204]);
@@ -144,6 +151,7 @@ try {
 
   await evaluate(options, `chrome.storage.local.set({settings:{exclusions:['127.0.0.1']}})`);
   await eventually(() => Promise.all(pages.map(session => evaluate(session, 'document.querySelectorAll("link[data-flik-v2-indicator], link[data-flik-indicator]").length'))), values => values.every(value => value === 0));
+  await eventually(() => Promise.all(pages.map(session => evaluate(session, 'document.querySelectorAll("link[rel~=icon]").length'))), values => values[0] === 3 && values.slice(1).every(value => value === 2));
   console.log('Full Chrome extension test passed: twenty tabs, including twelve open before install; diagnostics, cross-origin favicons, position change, restoration.');
 } finally {
   browser.kill('SIGINT');

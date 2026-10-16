@@ -1,10 +1,10 @@
 (() => {
   const OWNER = 'data-flik-v2-owner';
   const previous = globalThis.__flikContentStarted;
-  if (previous?.version === '0.1.7' && previous.active &&
+  if (previous?.version === '0.1.8' && previous.active &&
       document.documentElement?.getAttribute(OWNER) === previous.token) return;
   previous?.dispose?.();
-  const instance = { version: '0.1.7', token: `${Date.now()}-${Math.random()}`, active: true };
+  const instance = { version: '0.1.8', token: `${Date.now()}-${Math.random()}`, active: true };
   globalThis.__flikContentStarted = instance;
   const OWN = 'data-flik-v2-indicator';
   const LEGACY = 'data-flik-indicator';
@@ -27,6 +27,7 @@
   let observer;
   let ownerObserver;
   let startup;
+  const originalIcons = new Set();
 
   function isOwner() {
     return instance.active && document.documentElement?.getAttribute(OWNER) === instance.token;
@@ -66,7 +67,7 @@
   window.addEventListener('blur', onBlur);
 
   function siteIcons() {
-    const links = [...document.querySelectorAll('head link[rel]')].filter(link => {
+    const links = [...originalIcons, ...document.querySelectorAll('head link[rel]')].filter(link => {
       if (link.hasAttribute(OWN) || link.hasAttribute(LEGACY)) return false;
       return link.rel.toLowerCase().split(/\s+/).includes('icon') && link.href;
     });
@@ -91,8 +92,28 @@
     renderSerial++;
     indicator?.remove();
     indicator = null;
+    restoreOriginalIcons();
     sourceKey = '';
     renderStatus = 'ingen markering';
+  }
+
+  function stashOriginalIcons() {
+    for (const link of document.querySelectorAll('head link[rel]')) {
+      if (link === indicator || link.hasAttribute(OWN) || link.hasAttribute(LEGACY) ||
+          !link.rel.toLowerCase().split(/\s+/).includes('icon')) continue;
+      originalIcons.add(link);
+      observer?.observe(link, { attributes: true, attributeOldValue: true,
+        attributeFilter: ['href', 'rel', 'type', 'sizes'] });
+      link.remove();
+    }
+  }
+
+  function restoreOriginalIcons() {
+    if (!document.head) return;
+    for (const link of originalIcons) {
+      if (!link.isConnected) document.head.appendChild(link);
+    }
+    originalIcons.clear();
   }
 
   function draw(img, color, style, position, height) {
@@ -167,11 +188,14 @@
           indicator.setAttribute('sizes', '16x16');
           indicator.setAttribute(OWN, '');
         }
+        // Keep one favicon candidate. Chrome can continue displaying one of
+        // the site's links even when our generated link is the last one.
+        stashOriginalIcons();
         indicator.href = data;
         lastRenderAt = Date.now();
         document.head.appendChild(indicator);
         removeOtherIndicators();
-        renderStatus = 'visas';
+        renderStatus = 'ikonlänk skapad';
       };
       img.onerror = () => trySource(index + 1);
       img.src = source;
@@ -189,14 +213,17 @@
       removeOtherIndicators();
       const iconLink = node => node instanceof HTMLLinkElement && !node.hasAttribute(OWN) && !node.hasAttribute(LEGACY) &&
         node.rel.toLowerCase().split(/\s+/).includes('icon');
+      const markerRemoved = records.some(record => record.type === 'childList' &&
+        [...record.removedNodes].includes(indicator));
       const changed = records.some(record => {
         if (record.target instanceof Element && (record.target.hasAttribute(OWN) || record.target.hasAttribute(LEGACY))) return false;
         if (record.type === 'attributes') return iconLink(record.target) ||
           (record.attributeName === 'rel' && /\bicon\b/i.test(record.oldValue || ''));
         return [...record.addedNodes, ...record.removedNodes].some(node =>
-          iconLink(node) || (node instanceof Element && [...node.querySelectorAll('link[rel]')].some(iconLink)));
+          (iconLink(node) && !originalIcons.has(node)) ||
+          (node instanceof Element && [...node.querySelectorAll('link[rel]')].some(child => iconLink(child) && !originalIcons.has(child))));
       });
-      if (changed) render(true);
+      if (changed || (markerRemoved && !indicator?.isConnected && config?.color)) render(true);
     });
     observer.observe(document.head, { childList: true, attributes: true, attributeOldValue: true, subtree: true, attributeFilter: ['href', 'rel', 'type'] });
     send('ready');
@@ -211,8 +238,9 @@
         markers: [...document.querySelectorAll(`link[${OWN}]`)].filter(link => /\bicon\b/i.test(link.rel)).length,
         oldMarkers: [...document.querySelectorAll(`link[${LEGACY}], link[${OWN}]`)].filter(link => link !== indicator).length,
         cspBlocked,
-        iconSizes: [...document.querySelectorAll('head link[rel~="icon"]')].filter(link => !link.hasAttribute(OWN) && !link.hasAttribute(LEGACY)).map(link => link.getAttribute('sizes') || 'okänd').slice(0, 8),
+        iconSizes: [...originalIcons, ...document.querySelectorAll('head link[rel~="icon"]')].filter(link => !link.hasAttribute(OWN) && !link.hasAttribute(LEGACY)).map(link => link.getAttribute('sizes') || 'okänd').slice(0, 8),
         markerLast: indicator === [...document.querySelectorAll('head link[rel~="icon"]')].at(-1),
+        soleIcon: Boolean(indicator?.isConnected) && document.querySelectorAll('head link[rel~="icon"]').length === 1,
         configured: Boolean(config),
         sourceCount: siteIcons().length
       });

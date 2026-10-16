@@ -72,9 +72,9 @@ field('runDiagnostics').addEventListener('click', async () => {
     const result = await chrome.runtime.sendMessage({ type: 'diagnostics' });
     if (result?.error) throw new Error(result.error);
     const rows = result?.results || [];
-    const marked = rows.filter(row => row.markers === 1).length;
+    const marked = rows.filter(row => row.markers === 1 && row.soleIcon).length;
     const regular = rows.filter(row => /^https?:/.test(row.url)).length;
-    summary.textContent = `${marked} av ${regular} vanliga webbsidor har markering.`;
+    summary.textContent = `${marked} av ${regular} vanliga webbsidor har Fliks ikon som enda favicon-kandidat.`;
     const list = document.createElement('ul');
     const lines = [`Flik ${chrome.runtime.getManifest().version}: ${summary.textContent}`];
     for (const row of rows) {
@@ -84,7 +84,7 @@ field('runDiagnostics').addEventListener('click', async () => {
       catch { label = row.url || `Flik ${row.id}`; }
       const count = Number.isInteger(row.markers) ? `, aktiva markörer: ${row.markers}, äldre/inaktiva: ${row.oldMarkers || 0}` : '';
       const icons = row.iconSizes?.length ? `, sidans ikonstorlekar: ${row.iconSizes.join('/')}` : '';
-      item.textContent = `${label}: ${row.excluded ? 'undantagen' : row.status}${count}${row.cspBlocked ? ', data-bild blockerad av CSP' : ''}${icons}${Number.isInteger(row.markers) ? `, Fliks ikon sist: ${row.markerLast ? 'ja' : 'nej'}` : ''}${row.error ? ` (${row.error})` : ''}`;
+      item.textContent = `${label}: ${row.excluded ? 'undantagen' : row.status}${count}${row.cspBlocked ? ', data-bild blockerad av CSP' : ''}${icons}${Number.isInteger(row.markers) ? `, Fliks ikon ensam: ${row.soleIcon ? 'ja' : 'nej'}` : ''}${row.error ? ` (${row.error})` : ''}`;
       lines.push(item.textContent);
       list.appendChild(item);
     }
