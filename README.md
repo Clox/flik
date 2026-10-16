@@ -7,13 +7,15 @@ Flik visar hur länge sedan du faktiskt använde en flik genom en liten färgmar
 1. Öppna `chrome://extensions` i Google Chrome.
 2. Slå på **Developer mode / Utvecklarläge**.
 3. Välj **Load unpacked / Läs in opaketerat tillägg** och välj den här projektmappen.
-4. Öppna Fliks inställningar via tilläggets verktygsfältsikon. Ladda om redan öppna webbsidor en gång så att content scriptet körs på dem.
+4. Öppna Fliks inställningar via tilläggets verktygsfältsikon. Flik startar också i vanliga webbsidor som redan är öppna.
+
+Om du uppdaterar en tidigare installerad version, tryck **Reload / Läs in igen** på Fliks kort i `chrome://extensions`. Version 0.1.1 rättar felet där bara nyligen laddade flikar fick markering.
 
 Ingen byggning, server eller npm-installation behövs. Kör `npm test` för enhetstester. `test/browser-smoke.mjs` testar favicon-koden i en lokal Chrome-sida via DevTools-protokollet och kräver en separat Chrome-instans med `--remote-debugging-port=9228`.
 
 ## Så fungerar det
 
-- `content.js` körs i vanliga HTTP(S)-sidor. Det observerar sidans favicon-länkar, ritar originalikonen i sin naturliga favicon-storlek och lägger färgmarkeringen ovanpå. Flik lägger till en egen länk sist i `<head>`; sidans egna länkar ändras inte. När markeringen stängs av tas Fliks länk bort.
+- `content.js` körs i vanliga HTTP(S)-sidor, även i redan öppna flikar efter installation eller uppdatering. Det observerar sidans favicon-länkar, prövar också Chromes kända favicon-URL och `/favicon.ico` som reserv, ritar originalikonen i sin naturliga favicon-storlek och lägger färgmarkeringen ovanpå. Flik lägger till en egen länk sist i `<head>`; sidans egna länkar ändras inte. När markeringen stängs av tas Fliks länk bort.
 - Betrodda klick, tangenttryck, beröringar och hjulhändelser från en synlig sida registrerar användning direkt. En synlig flik räknas också efter vald tröskel, 10 sekunder som standard. Snabba flikpassager räknas inte.
 - `background.js` håller en gemensam aktivitetsklocka. Den går när Chrome har fokus och `chrome.idle` säger att användaren är aktiv. En alarmhändelse var 30:e sekund uppdaterar tillståndet. Klockan sparas i `chrome.storage.local` och långa luckor, till exempel viloläge eller avstängd service worker, räknas inte retroaktivt.
 - Inställningar, klocka och flikarnas senaste användning sparas lokalt. Vid omstart matchas återställda flikar mot tidigare flikar efter exakt URL. Enskilda flikundantag lagras i sessionslagring, väljs via högerklicksmenyn och gäller tills fliken stängs eller Chrome avslutas.
@@ -32,4 +34,4 @@ Automatiskt fullständigt tilläggstest är inte verifierat i den installerade C
 
 ## Behörigheter
 
-`tabs` läser flikarnas URL och skickar färg till rätt flik; `storage` sparar data; `idle` upptäcker AFK och låst dator; `alarms` väcker service workern; `contextMenus` ger undantag per flik. HTTP(S)-åtkomst behövs för content scriptet på vanliga webbplatser. Tillägget har ingen telemetri eller egen server.
+`tabs` läser flikarnas URL och skickar färg till rätt flik; `scripting` startar Flik i redan öppna flikar; `storage` sparar data; `idle` upptäcker AFK och låst dator; `alarms` väcker service workern; `contextMenus` ger undantag per flik. HTTP(S)-åtkomst behövs för content scriptet på vanliga webbplatser. Tillägget har ingen telemetri eller egen server.

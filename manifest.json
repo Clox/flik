@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
   "name": "Flik",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Visar hur länge sedan du faktiskt använde varje flik.",
   "minimum_chrome_version": "120",
   "icons": { "16": "icons/flik-16.png", "32": "icons/flik-32.png", "48": "icons/flik-48.png", "128": "icons/flik-128.png" },
-  "permissions": ["tabs", "storage", "idle", "alarms", "contextMenus"],
+  "permissions": ["tabs", "storage", "idle", "alarms", "contextMenus", "scripting"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "background": { "service_worker": "background.js", "type": "module" },
   "content_scripts": [{

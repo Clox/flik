@@ -1,4 +1,6 @@
 (() => {
+  if (globalThis.__flikContentStarted) return;
+  globalThis.__flikContentStarted = true;
   const OWN = 'data-flik-indicator';
   let indicator = null;
   let config = null;
@@ -34,13 +36,16 @@
   window.addEventListener('focus', scheduleDwell);
   window.addEventListener('blur', () => clearTimeout(dwellTimer));
 
-  function siteIcon() {
+  function siteIcons() {
     const links = [...document.querySelectorAll('head link[rel]')].filter(link => {
       if (link === indicator) return false;
       return link.rel.toLowerCase().split(/\s+/).includes('icon') && link.href;
     });
-    const link = links.at(-1);
-    return link ? link.href : new URL('/favicon.ico', location.href).href;
+    return [...new Set([
+      ...links.reverse().map(link => link.href),
+      config?.faviconUrl,
+      new URL('/favicon.ico', location.href).href
+    ].filter(Boolean))];
   }
 
   function removeIndicator() {
@@ -77,29 +82,36 @@
   function render(force = false) {
     if (!document.head || !config) return;
     if (!config.color) { removeIndicator(); return; }
-    const source = siteIcon();
-    const key = JSON.stringify([source, config]);
+    const sources = siteIcons();
+    const key = JSON.stringify([sources, config]);
     if (!force && key === sourceKey && indicator?.isConnected && indicator === document.head.lastElementChild) return;
     sourceKey = key;
     const serial = ++renderSerial;
-    const img = new Image();
-    // Same-origin and data URLs remain canvas-readable. Cross-origin icons need CORS.
-    try { if (new URL(source).origin !== location.origin && !source.startsWith('data:')) img.crossOrigin = 'anonymous'; } catch { return; }
-    img.onload = () => {
-      if (serial !== renderSerial || !config?.color || !document.head) return;
-      let data;
-      try { data = draw(img, config.color, config.style, config.position, config.height); }
-      catch { removeIndicator(); return; }
-      if (!indicator) {
-        indicator = document.createElement('link');
-        indicator.rel = 'icon';
-        indicator.setAttribute(OWN, '');
-      }
-      indicator.href = data;
-      document.head.appendChild(indicator);
+    const trySource = index => {
+      if (serial !== renderSerial) return;
+      if (index >= sources.length) { removeIndicator(); return; }
+      const source = sources[index];
+      const img = new Image();
+      // Same-origin and data URLs remain canvas-readable. Cross-origin icons need CORS.
+      try { if (new URL(source).origin !== location.origin && !source.startsWith('data:')) img.crossOrigin = 'anonymous'; }
+      catch { trySource(index + 1); return; }
+      img.onload = () => {
+        if (serial !== renderSerial || !config?.color || !document.head) return;
+        let data;
+        try { data = draw(img, config.color, config.style, config.position, config.height); }
+        catch { trySource(index + 1); return; }
+        if (!indicator) {
+          indicator = document.createElement('link');
+          indicator.rel = 'icon';
+          indicator.setAttribute(OWN, '');
+        }
+        indicator.href = data;
+        document.head.appendChild(indicator);
+      };
+      img.onerror = () => trySource(index + 1);
+      img.src = source;
     };
-    img.onerror = () => removeIndicator();
-    img.src = source;
+    trySource(0);
   }
 
   function startObserver() {
@@ -122,7 +134,7 @@
 
   chrome.runtime.onMessage.addListener(message => {
     if (message?.type !== 'indicator') return;
-    config = { color: message.color, style: message.style, position: message.position, height: message.height, dwellSeconds: message.dwellSeconds };
+    config = { color: message.color, style: message.style, position: message.position, height: message.height, dwellSeconds: message.dwellSeconds, faviconUrl: message.faviconUrl };
     scheduleDwell();
     render();
   });

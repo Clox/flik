@@ -98,16 +98,25 @@ async function updateTab(tab, force = false) {
   ensureTab(tab);
   const excluded = state.excludedTabs.includes(tab.id) || isExcluded(tab.url, settings.exclusions);
   const color = excluded ? null : colorForAge(ageMinutes(state.clock.total, state.tabs[tab.id].lastUsed), settings);
-  const signature = JSON.stringify([color, settings.style, settings.barPosition, settings.barHeight]);
+  const signature = JSON.stringify([color, settings.style, settings.barPosition, settings.barHeight, tab.favIconUrl]);
   if (!force && lastColors.get(tab.id) === signature) return;
   lastColors.set(tab.id, signature);
-  try { await chrome.tabs.sendMessage(tab.id, { type: 'indicator', color, style: settings.style, position: settings.barPosition, height: settings.barHeight, dwellSeconds: settings.dwellSeconds }); }
+  try { await chrome.tabs.sendMessage(tab.id, { type: 'indicator', color, style: settings.style, position: settings.barPosition, height: settings.barHeight, dwellSeconds: settings.dwellSeconds, faviconUrl: tab.favIconUrl }); }
   catch { /* Protected pages, unloaded/discarded tabs, and pages still loading. */ }
 }
 
 async function updateAll(force = false) {
   const tabs = await chrome.tabs.query({});
   await Promise.all(tabs.map(tab => updateTab(tab, force)));
+}
+
+async function injectExistingTabs() {
+  const tabs = await chrome.tabs.query({});
+  await Promise.all(tabs.filter(tab => tab.id && !tab.discarded && /^https?:/.test(tab.url || '')).map(async tab => {
+    try {
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
+    } catch { /* Protected, closing, or no longer available. */ }
+  }));
 }
 
 function select(tabId, windowId, now = Date.now()) {
@@ -117,9 +126,9 @@ function select(tabId, windowId, now = Date.now()) {
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({ id: MENU, title: 'Undanta den här fliken från markering', contexts: ['all'] }, () => void chrome.runtime.lastError);
-  serialized(async () => { await updateAll(true); });
+  serialized(async () => { await injectExistingTabs(); await updateAll(true); });
 });
-chrome.runtime.onStartup.addListener(() => serialized(async () => { await updateAll(true); }));
+chrome.runtime.onStartup.addListener(() => serialized(async () => { await injectExistingTabs(); await updateAll(true); }));
 chrome.action.onClicked.addListener(() => chrome.runtime.openOptionsPage());
 
 chrome.alarms.onAlarm.addListener(alarm => {
@@ -170,7 +179,7 @@ chrome.tabs.onActivated.addListener(info => {
 
 chrome.tabs.onCreated.addListener(tab => serialized(async () => { ensureTab(tab); await save(); await updateTab(tab); }));
 chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
-  if (!('url' in change) && change.status !== 'complete') return;
+  if (!('url' in change) && !('favIconUrl' in change) && change.status !== 'complete') return;
   serialized(async () => { ensureTab(tab); await save(); await updateTab(tab, true); });
 });
 chrome.tabs.onRemoved.addListener(tabId => serialized(async () => {

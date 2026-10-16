@@ -54,6 +54,7 @@ await send('Runtime.enable', {}, sessionId);
 try {
   await eventually(() => evaluate(sessionId, 'document.readyState'), value => value === 'complete');
   await evaluate(sessionId, `globalThis.chrome = {runtime:{sendMessage(message){(globalThis.__flikMessages ||= []).push(message)},onMessage:{addListener(fn){globalThis.__flikOnMessage = fn}}}}; ${contentScript}`);
+  await evaluate(sessionId, contentScript);
   const config = { type: 'indicator', color: '#35b96b', style: 'bar', position: 'bottom', height: 3, dwellSeconds: 10 };
   await evaluate(sessionId, `globalThis.__flikOnMessage(${JSON.stringify(config)})`);
   const first = await eventually(() => evaluate(sessionId, 'document.querySelector("[data-flik-indicator]")?.href'), value => value?.startsWith('data:image/png'));
@@ -61,10 +62,13 @@ try {
   await evaluate(sessionId, `document.querySelector('link[rel=icon]:not([data-flik-indicator])').href = ${JSON.stringify(icon('#cc6633'))}`);
   const second = await eventually(() => evaluate(sessionId, 'document.querySelector("[data-flik-indicator]")?.href'), value => value?.startsWith('data:image/png') && value !== first);
   assert.notEqual(second, first);
+  await evaluate(sessionId, 'document.querySelector("link[rel=icon]:not([data-flik-indicator])").remove()');
+  await evaluate(sessionId, `globalThis.__flikOnMessage(${JSON.stringify({ ...config, faviconUrl: icon('#0088aa') })})`);
+  await eventually(() => evaluate(sessionId, 'document.querySelector("[data-flik-indicator]")?.href'), value => value?.startsWith('data:image/png') && value !== second);
   await evaluate(sessionId, `globalThis.__flikOnMessage(${JSON.stringify({ ...config, color: null })})`);
   await eventually(() => evaluate(sessionId, 'document.querySelector("[data-flik-indicator]")'), value => value === null);
-  assert.equal(await evaluate(sessionId, 'document.querySelectorAll("link[rel=icon]").length'), 1);
-  console.log('Chrome content test passed: overlay, dynamic favicon, restoration.');
+  assert.equal(await evaluate(sessionId, 'document.querySelectorAll("link[rel=icon]").length'), 0);
+  console.log('Chrome content test passed: overlay, dynamic favicon, fallback and restoration.');
 } finally {
   await send('Target.closeTarget', { targetId });
   socket.close();
