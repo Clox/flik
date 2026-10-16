@@ -19,9 +19,16 @@ const iconServer = await serve((_request, response) => {
   response.end(png); // Deliberately no Access-Control-Allow-Origin.
 });
 const iconUrl = `http://127.0.0.1:${iconServer.address().port}/favicon.png`;
-const pageServer = await serve((_request, response) => {
+const pageServer = await serve((request, response) => {
+  if (request.url.startsWith('/favicon.png')) {
+    response.setHeader('Content-Type', 'image/png');
+    response.end(png);
+    return;
+  }
   response.setHeader('Content-Type', 'text/html; charset=utf-8');
-  response.end(`<title>Flik integration test</title><link rel="icon" href="${iconUrl}"><p>Test</p>`);
+  if (request.url.includes('csp=1')) response.setHeader('Content-Security-Policy', "img-src 'self'");
+  const favicon = request.url.includes('csp=1') ? '/favicon.png' : iconUrl;
+  response.end(`<title>Flik integration test</title><link rel="icon" href="${favicon}" sizes="16x16"><link rel="icon" href="${favicon}" sizes="32x32"><p>Test</p>`);
 });
 const pageUrl = `http://127.0.0.1:${pageServer.address().port}/`;
 const profile = await mkdtemp(join(tmpdir(), 'flik-cdp-'));
@@ -120,7 +127,14 @@ try {
   for (const session of pages) {
     assert.deepEqual(await pixel(session, 15), [51, 102, 204]);
     assert.equal(await evaluate(session, 'document.querySelectorAll("link[data-flik-indicator][rel~=icon]").length'), 1);
+    assert.equal(await evaluate(session, 'document.querySelector("link[data-flik-indicator][rel~=icon]").getAttribute("sizes")'), '16x16');
   }
+
+  const { targetId: cspTarget } = await send('Target.createTarget', { url: `${pageUrl}?csp=1` });
+  const cspPage = await attach(cspTarget);
+  await eventually(() => evaluate(cspPage, 'document.querySelector("link[data-flik-indicator][rel~=icon]")?.href'), value => value?.startsWith('data:image/png'));
+  const cspDiagnostic = await eventually(() => evaluate(options, 'chrome.runtime.sendMessage({type:"diagnostics"})'), value => value.results.some(row => row.url.includes('csp=1') && row.cspBlocked));
+  assert.equal(cspDiagnostic.results.find(row => row.url.includes('csp=1')).cspBlocked, true);
 
   await evaluate(options, `chrome.storage.local.set({settings:{exclusions:['127.0.0.1']}})`);
   await eventually(() => Promise.all(pages.map(session => evaluate(session, 'document.querySelectorAll("link[data-flik-indicator]").length'))), values => values.every(value => value === 0));

@@ -83,7 +83,8 @@ field('runDiagnostics').addEventListener('click', async () => {
       try { const url = new URL(row.url); label = `${url.hostname}${url.pathname}`; }
       catch { label = row.url || `Flik ${row.id}`; }
       const count = Number.isInteger(row.markers) ? `, aktiva markörer: ${row.markers}, äldre/inaktiva: ${row.oldMarkers || 0}` : '';
-      item.textContent = `${label}: ${row.excluded ? 'undantagen' : row.status}${count}${row.error ? ` (${row.error})` : ''}`;
+      const icons = row.iconSizes?.length ? `, sidans ikonstorlekar: ${row.iconSizes.join('/')}` : '';
+      item.textContent = `${label}: ${row.excluded ? 'undantagen' : row.status}${count}${row.cspBlocked ? ', data-bild blockerad av CSP' : ''}${icons}${Number.isInteger(row.markers) ? `, Fliks ikon sist: ${row.markerLast ? 'ja' : 'nej'}` : ''}${row.error ? ` (${row.error})` : ''}`;
       lines.push(item.textContent);
       list.appendChild(item);
     }

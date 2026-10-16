@@ -1,8 +1,8 @@
 (() => {
   const previous = globalThis.__flikContentStarted;
-  if (previous?.version === '0.1.5') return;
+  if (previous?.version === '0.1.6') return;
   previous?.dispose?.();
-  const instance = { version: '0.1.5' };
+  const instance = { version: '0.1.6' };
   globalThis.__flikContentStarted = instance;
   const OWN = 'data-flik-indicator';
   const staleHrefs = new Set();
@@ -17,6 +17,8 @@
   let cachedBrowserIcon = null;
   let cachedSourceKey = '';
   let renderStatus = 'väntar';
+  let lastRenderAt = 0;
+  let cspBlocked = false;
   let dwellTimer;
   let lastInteraction = 0;
   let observer;
@@ -45,6 +47,12 @@
     document.addEventListener(type, trustedInteraction, { capture: true, passive: true });
   }
   document.addEventListener('visibilitychange', scheduleDwell);
+  const onCspViolation = event => {
+    if (Date.now() - lastRenderAt < 2000 &&
+      ['img-src', 'default-src'].includes(event.effectiveDirective) &&
+      String(event.blockedURI).startsWith('data')) cspBlocked = true;
+  };
+  document.addEventListener('securitypolicyviolation', onCspViolation);
   window.addEventListener('focus', scheduleDwell);
   const onBlur = () => clearTimeout(dwellTimer);
   window.addEventListener('blur', onBlur);
@@ -80,7 +88,9 @@
   }
 
   function draw(img, color, style, position, height) {
-    const size = Math.min(128, Math.max(16, img.naturalWidth || 16));
+    // The tab strip requests a 16 px favicon. A declared 16x16 candidate
+    // wins over many sites' larger icon links while keeping the icon full size.
+    const size = 16;
     const canvas = document.createElement('canvas');
     canvas.width = size;
     canvas.height = size;
@@ -145,9 +155,12 @@
         if (!indicator) {
           indicator = document.createElement('link');
           indicator.rel = 'icon';
+          indicator.type = 'image/png';
+          indicator.setAttribute('sizes', '16x16');
           indicator.setAttribute(OWN, '');
         }
         indicator.href = data;
+        lastRenderAt = Date.now();
         document.head.appendChild(indicator);
         removeOtherIndicators();
         renderStatus = 'visas';
@@ -183,6 +196,9 @@
         status: renderStatus,
         markers: [...document.querySelectorAll(`link[${OWN}]`)].filter(link => /\bicon\b/i.test(link.rel)).length,
         oldMarkers: [...document.querySelectorAll(`link[${OWN}]`)].filter(link => link !== indicator).length,
+        cspBlocked,
+        iconSizes: [...document.querySelectorAll('head link[rel~="icon"]:not([data-flik-indicator])')].map(link => link.getAttribute('sizes') || 'okänd').slice(0, 8),
+        markerLast: indicator === [...document.querySelectorAll('head link[rel~="icon"]')].at(-1),
         configured: Boolean(config),
         sourceCount: siteIcons().length
       });
@@ -215,6 +231,7 @@
       document.removeEventListener(type, trustedInteraction, true);
     }
     document.removeEventListener('visibilitychange', scheduleDwell);
+    document.removeEventListener('securitypolicyviolation', onCspViolation);
     window.removeEventListener('focus', scheduleDwell);
     window.removeEventListener('blur', onBlur);
     try { chrome.runtime.onMessage.removeListener(onMessage); } catch { /* Old extension context. */ }

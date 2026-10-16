@@ -224,6 +224,8 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         }
         return { ...row, status: detail?.status || 'okänt', markers: detail?.markers ?? 0,
           oldMarkers: detail?.oldMarkers ?? 0, sourceCount: detail?.sourceCount ?? 0,
+          cspBlocked: Boolean(detail?.cspBlocked),
+          iconSizes: detail?.iconSizes || [], markerLast: Boolean(detail?.markerLast),
           excluded: state.excludedTabs.includes(tab.id) || isExcluded(row.url, settings.exclusions) };
       }));
       respond({ results });

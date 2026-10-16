@@ -9,7 +9,7 @@ Flik visar hur länge sedan du faktiskt använde en flik genom en liten färgmar
 3. Välj **Load unpacked / Läs in opaketerat tillägg** och välj den här projektmappen.
 4. Öppna Fliks inställningar via tilläggets verktygsfältsikon. Flik startar också i vanliga webbsidor som redan är öppna.
 
-Om du uppdaterar en tidigare installerad version, tryck **Reload / Läs in igen** på Fliks kort i `chrome://extensions`. Version 0.1.5 tar bort kvarvarande markörlänkar från äldre Flik-skript helt, så att Chrome kan välja den nya faviconen. Flikdiagnosen längst ned på inställningssidan visar antalet aktiva och äldre markörer per flik.
+Om du uppdaterar en tidigare installerad version, tryck **Reload / Läs in igen** på Fliks kort i `chrome://extensions`. Version 0.1.6 tar bort kvarvarande markörlänkar från äldre Flik-skript helt och deklarerar indikatorn som en 16 × 16 PNG så att Chrome kan välja den framför sidans andra ikonstorlekar. Flikdiagnosen visar också om sidans bildpolicy blockerar data-faviconer.
 
 Om några flikar saknar markering: öppna inställningarna, tryck **Kontrollera flikar**, och se status per flik. **Kopiera resultat** ger en rapport som du kan dela vid felsökning. Rapporten innehåller domän och sökväg, men utelämnar frågesträng och fragment; granska den före delning. En vilande flik får markering när Chrome laddar den.
 
@@ -26,7 +26,9 @@ Ingen byggning, server eller npm-installation behövs. Kör `npm test` för enhe
 
 Chrome ger inte tillägg möjlighet att rita direkt i flikraden. Därför fungerar markeringen bara där ett content script kan köras. `chrome://`-sidor, Chrome Web Store, andra tilläggssidor och andra skyddade sidor får ingen markering. Filsidor kräver separat filåtkomst och ingår inte i första versionen.
 
-Om varken sidans ikon eller Chromes favicon-cache har en läsbar bild lämnas originalfaviconen orörd. Sidor som använder ovanlig favicon-hantering, till exempel en länk med mediefrågor eller flera ikoner för olika storlekar, kan behöva särskild hantering. Ikoner över 128 pixlar begränsas för att hålla resurserna nere.
+Om varken sidans ikon eller Chromes favicon-cache har en läsbar bild lämnas originalfaviconen orörd. Sidor som använder ovanlig favicon-hantering, till exempel en länk med mediefrågor eller flera ikoner för olika storlekar, kan behöva särskild hantering. Flik återger originalikonen i flikradens 16 × 16 pixlar och ritar markeringen ovanpå utan att krympa ikonen för att göra plats.
+
+Chrome kan behålla en tidigare vald favicon på redan öppna flikar även när Fliks nya ikonlänk finns i sidan. En omladdning av just fliken kan då få Chrome att välja om ikonen. Sidans Content Security Policy kan också blockera data-URL:er för faviconer; Fliks diagnos visar när en sådan blockering upptäcks. Chrome ger inte Manifest V3-tillägg ett direkt API för att sätta bilden i den inbyggda flikraden.
 
 Chromes `idle`-API rapporterar inaktivitet i steg och kan inte skilja på alla typer av automatisk aktivitet. Flik använder bara DOM-händelser med `isTrusted` för direkt interaktion; en sidgenererad scrollhändelse räknas inte. Klockan använder ett försiktigt tak på 35 sekunder per uppdatering för att undvika att viloläge och plötsliga omstarter åldrar flikarna. Det kan förlora upp till en kort aktivitetsperiod efter en oväntad avstängning.
 
