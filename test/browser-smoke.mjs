@@ -9,7 +9,7 @@ const contentScript = await readFile(new URL('../content.js', import.meta.url), 
 const icon = color => `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="${color}"/></svg>`)}`;
 const server = http.createServer((req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.end(`<title>Flik test</title><link rel="icon" href="${icon('#3366cc')}"><p>Test</p>`);
+  res.end(`<title>Flik test</title><link rel="icon" href="${icon('#3366cc')}"><link rel="icon" data-flik-indicator href="${icon('#ff0000')}"><p>Test</p>`);
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const siteUrl = `http://127.0.0.1:${server.address().port}/`;
@@ -59,6 +59,16 @@ try {
   await evaluate(sessionId, `globalThis.__flikOnMessage(${JSON.stringify(config)})`);
   const first = await eventually(() => evaluate(sessionId, 'document.querySelector("[data-flik-indicator]")?.href'), value => value?.startsWith('data:image/png'));
   assert.equal(await evaluate(sessionId, 'document.querySelectorAll("link[rel=icon]").length'), 2);
+  const pixel = async y => evaluate(sessionId, `(async()=>{const img=new Image();img.src=document.querySelector('[data-flik-indicator]').href;await img.decode();const c=document.createElement('canvas');c.width=c.height=16;const x=c.getContext('2d');x.drawImage(img,0,0);return [...x.getImageData(8,${y},1,1).data].slice(0,3)})()`);
+  assert.deepEqual(await pixel(0), [51, 102, 204]);
+  assert.deepEqual(await pixel(15), [53, 185, 107]);
+  await evaluate(sessionId, `globalThis.__flikOnMessage(${JSON.stringify({ ...config, color: '#e65454', position: 'top' })})`);
+  await eventually(() => evaluate(sessionId, 'document.querySelector("[data-flik-indicator]")?.href'), value => value?.startsWith('data:image/png') && value !== first);
+  assert.deepEqual(await pixel(0), [230, 84, 84]);
+  assert.deepEqual(await pixel(15), [51, 102, 204]);
+  await evaluate(sessionId, `globalThis.__flikOnMessage(${JSON.stringify(config)})`);
+  await eventually(() => pixel(0), value => JSON.stringify(value) === '[51,102,204]');
+  assert.deepEqual(await pixel(15), [53, 185, 107]);
   await evaluate(sessionId, `document.querySelector('link[rel=icon]:not([data-flik-indicator])').href = ${JSON.stringify(icon('#cc6633'))}`);
   const second = await eventually(() => evaluate(sessionId, 'document.querySelector("[data-flik-indicator]")?.href'), value => value?.startsWith('data:image/png') && value !== first);
   assert.notEqual(second, first);
@@ -68,7 +78,7 @@ try {
   await evaluate(sessionId, `globalThis.__flikOnMessage(${JSON.stringify({ ...config, color: null })})`);
   await eventually(() => evaluate(sessionId, 'document.querySelector("[data-flik-indicator]")'), value => value === null);
   assert.equal(await evaluate(sessionId, 'document.querySelectorAll("link[rel=icon]").length'), 0);
-  console.log('Chrome content test passed: overlay, dynamic favicon, fallback and restoration.');
+  console.log('Chrome content test passed: stale-marker cleanup, position changes, dynamic favicon, fallback and restoration.');
 } finally {
   await send('Target.closeTarget', { targetId });
   socket.close();

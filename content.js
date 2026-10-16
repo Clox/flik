@@ -2,10 +2,17 @@
   if (globalThis.__flikContentStarted) return;
   globalThis.__flikContentStarted = true;
   const OWN = 'data-flik-indicator';
+  const staleHrefs = new Set();
+  for (const old of document.querySelectorAll(`link[${OWN}]`)) {
+    staleHrefs.add(old.href);
+    old.remove();
+  }
   let indicator = null;
   let config = null;
   let sourceKey = '';
   let renderSerial = 0;
+  let cachedBrowserIcon = null;
+  let cachedSourceKey = '';
   let dwellTimer;
   let lastInteraction = 0;
   let observer;
@@ -38,7 +45,7 @@
 
   function siteIcons() {
     const links = [...document.querySelectorAll('head link[rel]')].filter(link => {
-      if (link === indicator) return false;
+      if (link.hasAttribute(OWN)) return false;
       return link.rel.toLowerCase().split(/\s+/).includes('icon') && link.href;
     });
     return [...new Set([
@@ -50,7 +57,7 @@
 
   function removeIndicator() {
     renderSerial++;
-    indicator?.remove();
+    for (const own of document.querySelectorAll(`link[${OWN}]`)) own.remove();
     indicator = null;
     sourceKey = '';
   }
@@ -82,14 +89,30 @@
   function render(force = false) {
     if (!document.head || !config) return;
     if (!config.color) { removeIndicator(); return; }
-    const sources = siteIcons();
+    const siteSources = siteIcons();
+    const sourceFingerprint = JSON.stringify(siteSources);
+    if (sourceFingerprint !== cachedSourceKey) {
+      cachedSourceKey = sourceFingerprint;
+      cachedBrowserIcon = null;
+    }
+    const sources = cachedBrowserIcon ? [cachedBrowserIcon, ...siteSources] : [...siteSources];
     const key = JSON.stringify([sources, config]);
     if (!force && key === sourceKey && indicator?.isConnected && indicator === document.head.lastElementChild) return;
     sourceKey = key;
     const serial = ++renderSerial;
     const trySource = index => {
       if (serial !== renderSerial) return;
-      if (index >= sources.length) { removeIndicator(); return; }
+      if (index >= sources.length) {
+        if (cachedBrowserIcon) { removeIndicator(); return; }
+        chrome.runtime.sendMessage({ type: 'favicon-fallback' }).then(result => {
+          if (serial !== renderSerial) return;
+          if (!result?.dataUrl) { removeIndicator(); return; }
+          cachedBrowserIcon = result.dataUrl;
+          sources.push(result.dataUrl);
+          trySource(index);
+        }).catch(() => { if (serial === renderSerial) removeIndicator(); });
+        return;
+      }
       const source = sources[index];
       const img = new Image();
       // Same-origin and data URLs remain canvas-readable. Cross-origin icons need CORS.
@@ -117,10 +140,10 @@
   function startObserver() {
     if (!document.head || observer) return;
     observer = new MutationObserver(records => {
-      const iconLink = node => node !== indicator && node instanceof HTMLLinkElement &&
+      const iconLink = node => node instanceof HTMLLinkElement && !node.hasAttribute(OWN) &&
         node.rel.toLowerCase().split(/\s+/).includes('icon');
       const changed = records.some(record => {
-        if (record.target === indicator) return false;
+        if (record.target instanceof Element && record.target.hasAttribute(OWN)) return false;
         if (record.type === 'attributes') return iconLink(record.target) ||
           (record.attributeName === 'rel' && /\bicon\b/i.test(record.oldValue || ''));
         return [...record.addedNodes, ...record.removedNodes].some(node =>
@@ -134,7 +157,8 @@
 
   chrome.runtime.onMessage.addListener(message => {
     if (message?.type !== 'indicator') return;
-    config = { color: message.color, style: message.style, position: message.position, height: message.height, dwellSeconds: message.dwellSeconds, faviconUrl: message.faviconUrl };
+    const faviconUrl = message.faviconUrl === indicator?.href || staleHrefs.has(message.faviconUrl) ? config?.faviconUrl : message.faviconUrl;
+    config = { color: message.color, style: message.style, position: message.position, height: message.height, dwellSeconds: message.dwellSeconds, faviconUrl };
     scheduleDwell();
     render();
   });

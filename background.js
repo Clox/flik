@@ -191,6 +191,24 @@ chrome.tabs.onRemoved.addListener(tabId => serialized(async () => {
 }));
 
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  if (message?.type === 'favicon-fallback') {
+    if (!sender.tab?.id || sender.frameId !== 0 || !/^https?:/.test(sender.tab.url || '')) return false;
+    (async () => {
+      // Chrome's favicon cache avoids cross-origin Canvas restrictions. The
+      // page URL comes from Chrome, never from the requesting page.
+      const url = new URL(chrome.runtime.getURL('/_favicon/'));
+      url.searchParams.set('pageUrl', sender.tab.url);
+      url.searchParams.set('size', '32');
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Favicon unavailable');
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (!bytes.length || bytes.length > 65536) throw new Error('Invalid favicon size');
+      const png = bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
+      if (!png) throw new Error('Unsupported favicon format');
+      respond({ dataUrl: 'data:image/png;base64,' + btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join('')) });
+    })().catch(() => respond({}));
+    return true;
+  }
   serialized(async () => {
     const tab = sender.tab;
     if (!tab || sender.frameId !== 0 || !['interaction', 'dwell', 'ready'].includes(message?.type)) return;
