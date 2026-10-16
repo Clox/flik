@@ -222,7 +222,8 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           await updateTab(tab, true);
           detail = await chrome.tabs.sendMessage(tab.id, { type: 'diagnostic' }).catch(() => detail);
         }
-        return { ...row, status: detail?.status || 'okänt', markers: detail?.markers ?? 0, sourceCount: detail?.sourceCount ?? 0,
+        return { ...row, status: detail?.status || 'okänt', markers: detail?.markers ?? 0,
+          oldMarkers: detail?.oldMarkers ?? 0, sourceCount: detail?.sourceCount ?? 0,
           excluded: state.excludedTabs.includes(tab.id) || isExcluded(row.url, settings.exclusions) };
       }));
       respond({ results });

@@ -9,7 +9,7 @@ Flik visar hur länge sedan du faktiskt använde en flik genom en liten färgmar
 3. Välj **Load unpacked / Läs in opaketerat tillägg** och välj den här projektmappen.
 4. Öppna Fliks inställningar via tilläggets verktygsfältsikon. Flik startar också i vanliga webbsidor som redan är öppna.
 
-Om du uppdaterar en tidigare installerad version, tryck **Reload / Läs in igen** på Fliks kort i `chrome://extensions`. Version 0.1.3 har en flikdiagnos längst ned på inställningssidan. Den visar vilka flikar som nås och försöker starta skriptet igen där det saknas.
+Om du uppdaterar en tidigare installerad version, tryck **Reload / Läs in igen** på Fliks kort i `chrome://extensions`. Version 0.1.4 tar bort andra aktiva Flik-markörer i samma sida och undviker att återanvända en redan modifierad data-URL som originalikon. Flikdiagnosen längst ned på inställningssidan visar nu antalet aktiva och äldre markörer per flik.
 
 Om några flikar saknar markering: öppna inställningarna, tryck **Kontrollera flikar**, och se status per flik. **Kopiera resultat** ger en rapport som du kan dela vid felsökning. Rapporten innehåller domän och sökväg, men utelämnar frågesträng och fragment; granska den före delning. En vilande flik får markering när Chrome laddar den.
 

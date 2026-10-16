@@ -96,14 +96,18 @@ try {
   await eventually(() => evaluate(options, 'document.readyState'), value => value === 'complete');
   assert.equal(await evaluate(options, 'typeof chrome.storage.local'), 'object');
 
-  const faviconHref = session => evaluate(session, 'document.querySelector("link[data-flik-indicator]")?.href');
-  const pixel = (session, y) => evaluate(session, `(async()=>{const image=new Image();image.src=document.querySelector('link[data-flik-indicator]').href;await image.decode();const canvas=document.createElement('canvas');canvas.width=canvas.height=16;const ctx=canvas.getContext('2d');ctx.drawImage(image,0,0,16,16);return [...ctx.getImageData(8,${y},1,1).data].slice(0,3)})()`);
+  const faviconHref = session => evaluate(session, 'document.querySelector("link[data-flik-indicator][rel~=icon]")?.href');
+  const pixel = (session, y) => evaluate(session, `(async()=>{const image=new Image();image.src=document.querySelector('link[data-flik-indicator][rel~=icon]').href;await image.decode();const canvas=document.createElement('canvas');canvas.width=canvas.height=16;const ctx=canvas.getContext('2d');ctx.drawImage(image,0,0,16,16);return [...ctx.getImageData(8,${y},1,1).data].slice(0,3)})()`);
 
   await eventually(() => Promise.all(pages.map(faviconHref)), values => values.every(value => value?.startsWith('data:image/png')));
+  // Simulate a surviving marker from an older extension context in every tab.
+  await Promise.all(pages.map(session => evaluate(session, `(() => { const link = document.createElement('link'); link.rel = 'icon'; link.setAttribute('data-flik-indicator', ''); link.href = document.querySelector('link[data-flik-indicator]').href; document.head.appendChild(link); })()`)));
+  await eventually(() => Promise.all(pages.map(session => evaluate(session, `[...document.querySelectorAll('link[data-flik-indicator]')].filter(link => /\\bicon\\b/i.test(link.rel)).length`))), values => values.every(value => value === 1));
   console.log('Indicators visible; running diagnostics…');
   const diagnostics = await evaluate(options, 'chrome.runtime.sendMessage({type:"diagnostics"})');
   assert.equal(diagnostics.results.filter(row => row.url.startsWith(pageUrl)).length, 20);
   assert.equal(diagnostics.results.filter(row => row.markers === 1).length, 20);
+  assert.equal(diagnostics.results.filter(row => row.oldMarkers === 1).length, 20);
   console.log('Diagnostics passed; checking colors…');
   for (const session of pages) {
     assert.deepEqual(await pixel(session, 0), [51, 102, 204]);
@@ -114,7 +118,7 @@ try {
   await eventually(() => Promise.all(pages.map(session => pixel(session, 0))), values => values.every(value => JSON.stringify(value) === '[230,84,84]'));
   for (const session of pages) {
     assert.deepEqual(await pixel(session, 15), [51, 102, 204]);
-    assert.equal(await evaluate(session, 'document.querySelectorAll("link[data-flik-indicator]").length'), 1);
+    assert.equal(await evaluate(session, 'document.querySelectorAll("link[data-flik-indicator][rel~=icon]").length'), 1);
   }
 
   await evaluate(options, `chrome.storage.local.set({settings:{exclusions:['127.0.0.1']}})`);

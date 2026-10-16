@@ -1,6 +1,9 @@
 (() => {
-  if (globalThis.__flikContentStarted) return;
-  globalThis.__flikContentStarted = true;
+  const previous = globalThis.__flikContentStarted;
+  if (previous?.version === '0.1.4') return;
+  previous?.dispose?.();
+  const instance = { version: '0.1.4' };
+  globalThis.__flikContentStarted = instance;
   const OWN = 'data-flik-indicator';
   const staleHrefs = new Set();
   for (const old of document.querySelectorAll(`link[${OWN}]`)) {
@@ -17,6 +20,7 @@
   let dwellTimer;
   let lastInteraction = 0;
   let observer;
+  let startup;
 
   function send(type) {
     try { chrome.runtime.sendMessage({ type, visible: document.visibilityState === 'visible' }); } catch { /* Extension reloaded. */ }
@@ -42,18 +46,29 @@
   }
   document.addEventListener('visibilitychange', scheduleDwell);
   window.addEventListener('focus', scheduleDwell);
-  window.addEventListener('blur', () => clearTimeout(dwellTimer));
+  const onBlur = () => clearTimeout(dwellTimer);
+  window.addEventListener('blur', onBlur);
 
   function siteIcons() {
     const links = [...document.querySelectorAll('head link[rel]')].filter(link => {
       if (link.hasAttribute(OWN)) return false;
       return link.rel.toLowerCase().split(/\s+/).includes('icon') && link.href;
     });
+    // Chrome may report our generated favicon back as tab.favIconUrl, sometimes
+    // after re-encoding it. Never treat a browser-reported data URL as original.
+    const browserIcon = config?.faviconUrl && !config.faviconUrl.startsWith('data:') &&
+      !staleHrefs.has(config.faviconUrl) ? config.faviconUrl : null;
     return [...new Set([
       ...links.reverse().map(link => link.href),
-      config?.faviconUrl,
+      browserIcon,
       new URL('/favicon.ico', location.href).href
     ].filter(Boolean))];
+  }
+
+  function deactivateOtherIndicators() {
+    for (const link of document.querySelectorAll(`link[${OWN}]`)) {
+      if (link !== indicator && /\bicon\b/i.test(link.rel)) link.rel = '';
+    }
   }
 
   function removeIndicator() {
@@ -91,6 +106,7 @@
   function render(force = false) {
     if (!document.head || !config) return;
     if (!config.color) { removeIndicator(); return; }
+    deactivateOtherIndicators();
     const siteSources = siteIcons();
     const sourceFingerprint = JSON.stringify(siteSources);
     if (sourceFingerprint !== cachedSourceKey) {
@@ -133,6 +149,7 @@
         }
         indicator.href = data;
         document.head.appendChild(indicator);
+        deactivateOtherIndicators();
         renderStatus = 'visas';
       };
       img.onerror = () => trySource(index + 1);
@@ -144,6 +161,7 @@
   function startObserver() {
     if (!document.head || observer) return;
     observer = new MutationObserver(records => {
+      deactivateOtherIndicators();
       const iconLink = node => node instanceof HTMLLinkElement && !node.hasAttribute(OWN) &&
         node.rel.toLowerCase().split(/\s+/).includes('icon');
       const changed = records.some(record => {
@@ -159,11 +177,12 @@
     send('ready');
   }
 
-  chrome.runtime.onMessage.addListener((message, _sender, respond) => {
+  const onMessage = (message, _sender, respond) => {
     if (message?.type === 'diagnostic') {
       respond({
         status: renderStatus,
-        markers: document.querySelectorAll(`link[${OWN}]`).length,
+        markers: [...document.querySelectorAll(`link[${OWN}]`)].filter(link => /\bicon\b/i.test(link.rel)).length,
+        oldMarkers: [...document.querySelectorAll(`link[${OWN}]`)].filter(link => link !== indicator).length,
         configured: Boolean(config),
         sourceCount: siteIcons().length
       });
@@ -174,11 +193,12 @@
     config = { color: message.color, style: message.style, position: message.position, height: message.height, dwellSeconds: message.dwellSeconds, faviconUrl };
     scheduleDwell();
     render();
-  });
+  };
+  chrome.runtime.onMessage.addListener(onMessage);
 
   if (document.head) startObserver();
   else {
-    const startup = new MutationObserver(() => {
+    startup = new MutationObserver(() => {
       if (!document.head) return;
       startup.disconnect();
       startObserver();
@@ -187,4 +207,17 @@
     startup.observe(document.documentElement || document, { childList: true, subtree: true });
   }
   scheduleDwell();
+  instance.dispose = () => {
+    clearTimeout(dwellTimer);
+    observer?.disconnect();
+    startup?.disconnect();
+    for (const type of ['pointerdown', 'keydown', 'wheel', 'touchstart']) {
+      document.removeEventListener(type, trustedInteraction, true);
+    }
+    document.removeEventListener('visibilitychange', scheduleDwell);
+    window.removeEventListener('focus', scheduleDwell);
+    window.removeEventListener('blur', onBlur);
+    try { chrome.runtime.onMessage.removeListener(onMessage); } catch { /* Old extension context. */ }
+    removeIndicator();
+  };
 })();
